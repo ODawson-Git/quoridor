@@ -1305,22 +1305,70 @@ fn abs_diff(a: usize, b: usize) -> usize {
     if a > b { a - b } else { b - a }
 }
 
-// Basic opening moves
+// Opening moves
 fn get_opening_moves(opening_name: &str, player: Player) -> Vec<String> {
     match (opening_name, player) {
         ("No Opening", Player::Player1) => vec!["e2".to_string()],
         ("No Opening", Player::Player2) => vec!["e8".to_string()],
-        
-        // Fix the wall notation - these had potential issues
-        ("Sidewall Opening", Player::Player1) => vec!["e2".to_string(), "c3h".to_string()],
-        ("Sidewall Opening", Player::Player2) => vec!["e8".to_string(), "a3h".to_string()],
-        
+
+        ("Sidewall Opening", Player::Player1) => vec!["c3h".to_string(), "f3h".to_string()],
+        ("Sidewall Opening", Player::Player2) => vec!["a3h".to_string(), "h3h".to_string()],
+
+        ("Shiller Opening", Player::Player1) => vec!["e2".to_string(), "e3".to_string(), "e4".to_string(), "c3v".to_string()],
+        ("Shiller Opening", Player::Player2) => vec!["e8".to_string(), "e7".to_string(), "e6".to_string()],
+
+        ("Stonewall", Player::Player1) => vec!["e2".to_string(), "e3".to_string(), "d2h".to_string()],
+        ("Stonewall", Player::Player2) => vec!["e8".to_string(), "e7".to_string()],
+
+        ("Ala Opening", Player::Player1) => vec![
+            "e2".to_string(), "e3".to_string(), "e4".to_string(), 
+            "d5h".to_string(), "f5h".to_string(), "c4v".to_string(), "g4v".to_string()
+        ],
+        ("Ala Opening", Player::Player2) => vec!["e8".to_string(), "e7".to_string(), "e6".to_string()],
+
         ("Standard Opening", Player::Player1) => vec!["e2".to_string(), "e3".to_string(), "e4".to_string(), "e3v".to_string()],
         ("Standard Opening", Player::Player2) => vec!["e8".to_string(), "e7".to_string(), "e6".to_string(), "e6v".to_string()],
-        
+
+        ("Standard Opening (Symmetrical)", Player::Player1) => vec!["e2".to_string(), "e3".to_string(), "e4".to_string(), "e3v".to_string()],
+        ("Standard Opening (Symmetrical)", Player::Player2) => vec!["e8".to_string(), "e7".to_string(), "e6".to_string(), "d6v".to_string()],
+
+        ("Rush Variation", Player::Player1) => vec![
+            "e2".to_string(), "e3".to_string(), "e4".to_string(), 
+            "d5v".to_string(), "e4h".to_string(), "g4h".to_string(), "h5v".to_string()
+        ],
+        ("Rush Variation", Player::Player2) => vec![
+            "e8".to_string(), "e7".to_string(), "e6".to_string(), 
+            "e6h".to_string(), "f6".to_string(), "f5".to_string(), "g5".to_string()
+        ],
+
+        ("Gap Opening", Player::Player1) => vec!["e2".to_string(), "e3".to_string(), "e4".to_string()],
+        ("Gap Opening", Player::Player2) => vec!["e8".to_string(), "e7".to_string(), "e6".to_string()],
+
+        ("Gap Opening (Mainline)", Player::Player1) => vec!["e2".to_string(), "e3".to_string(), "e4".to_string()],
+        ("Gap Opening (Mainline)", Player::Player2) => vec!["e8".to_string(), "e7".to_string(), "e6".to_string(), "g6h".to_string()],
+
+        ("Anti-Gap", Player::Player1) => vec!["e2".to_string(), "e3".to_string(), "e4".to_string()],
+        ("Anti-Gap", Player::Player2) => vec!["e8".to_string(), "e7".to_string(), "e6".to_string(), "b3h".to_string()],
+
+        ("Sidewall", Player::Player1) => vec!["e2".to_string(), "d7v".to_string()],
+        ("Sidewall", Player::Player2) => vec!["e8".to_string()],
+
+        ("Sidewall (Proper Counter)", Player::Player1) => vec!["e2".to_string(), "d7v".to_string()],
+        ("Sidewall (Proper Counter)", Player::Player2) => vec!["e8".to_string(), "c7h".to_string()],
+
+        ("Quick Box Variation", Player::Player1) => vec!["e2".to_string()],
+        ("Quick Box Variation", Player::Player2) => vec!["e8".to_string(), "d1h".to_string()],
+
+        ("Shatranj Opening", Player::Player1) => vec!["d1v".to_string()],
+        ("Shatranj Opening", Player::Player2) => vec![],
+
+        ("Lee Inversion", Player::Player1) => vec!["e1v".to_string()],
+        ("Lee Inversion", Player::Player2) => vec![],
+
         _ => Vec::new(),
     }
 }
+
 
 // Tournament structure
 struct TournamentResult {
