@@ -637,7 +637,7 @@ trait Strategy {
 // Base implementation for all strategies
 struct QuoridorStrategy {
     name: String,
-    1ng_moves: Vec<String>,
+    opening_moves: Vec<String>,
     move_counter: usize,
 }
 
