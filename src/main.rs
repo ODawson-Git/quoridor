@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -6,6 +6,8 @@ use rand::prelude::*;
 use csv::Writer;
 use petgraph::graph::{Graph, NodeIndex, UnGraph};
 use petgraph::algo::{dijkstra, has_path_connecting};
+use std::cmp::{min, max};
+use std::env;
 
 // Define coordinate type for clarity
 type Coord = (usize, usize);
@@ -196,11 +198,11 @@ impl Quoridor {
         };
         
         let hwall_str: String = self.hwall_positions.iter()
-            .map(|&pos| self.coord_to_algebraic(pos))
+            .map(|&pos| self.coord_to_algebraic(pos)[0..2].to_string())
             .collect();
             
         let vwall_str: String = self.vwall_positions.iter()
-            .map(|&pos| self.coord_to_algebraic(pos))
+            .map(|&pos| self.coord_to_algebraic(pos)[0..2].to_string())
             .collect();
             
         let p1_pos = self.coord_to_algebraic(self.pawn_positions[&Player::Player1]);
@@ -216,12 +218,42 @@ impl Quoridor {
     }
     
     fn algebraic_to_coord(&self, square: &str) -> Coord {
-        let chars: Vec<char> = square.chars().collect();
-        let col_letter = chars[0].to_lowercase().next().unwrap();
-        let row_num: usize = square[1..].parse().expect("Invalid row number");
+        // Safety check for wall notation
+        if square.len() > 2 && (square.ends_with('h') || square.ends_with('v')) {
+            // println!("Warning: Full wall notation passed to algebraic_to_coord: {}", square);
+            // Extract just the position part
+            let position = &square[0..2];
+            return self.algebraic_to_coord(position);
+        }
         
-        let col = (col_letter as u8 - b'a') as usize;
+        if square.len() < 2 {
+            panic!("Invalid algebraic notation: {}", square);
+        }
+        
+        let bytes = square.as_bytes();
+        let col_letter = bytes[0] as char;
+        
+        // Check that first character is a valid column letter
+        if !col_letter.is_ascii_alphabetic() {
+            panic!("Invalid column letter in algebraic notation: {}", square);
+        }
+        
+        // Parse row number, ensuring it's all digits
+        let row_digits = &square[1..];
+        let row_num = match row_digits.parse::<usize>() {
+            Ok(num) => num,
+            Err(e) => {
+                panic!("Invalid row number in algebraic notation '{}': {}", square, e);
+            }
+        };
+        
+        let col = (col_letter.to_ascii_lowercase() as u8 - b'a') as usize;
         let row = self.size - row_num;
+        
+        // Check bounds
+        if row >= self.size || col >= self.size {
+            panic!("Algebraic notation out of bounds: {}", square);
+        }
         
         (row, col)
     }
@@ -246,29 +278,77 @@ impl Quoridor {
     }
     
     fn get_wall_edges(&self, wall_move: &str) -> Vec<(Coord, Coord)> {
+        if wall_move.len() < 3 {
+            println!("Invalid wall move format: {}", wall_move);
+            return Vec::new();
+        }
+        
+        // Extract position part (first 2 characters)
         let position = &wall_move[0..2];
         let orientation = &wall_move[2..];
         
-        let coord = self.algebraic_to_coord(position);
+        // Validate orientation
+        if orientation != "h" && orientation != "v" {
+            println!("Invalid wall orientation: {}", orientation);
+            return Vec::new();
+        }
+        
+        // Parse position without orientation
+        let coord = match self.algebraic_to_coord(position) {
+            c => c,
+            #[allow(unreachable_patterns)]
+            _ => {
+                println!("Failed to parse position: {}", position);
+                return Vec::new();
+            }
+        };
+        
         let mut edges = Vec::new();
         
         if orientation == "h" {
-            edges.push((coord, (coord.0.wrapping_sub(1), coord.1)));
-            edges.push(((coord.0, coord.1 + 1), (coord.0.wrapping_sub(1), coord.1 + 1)));
+            if coord.0 > 0 {
+                edges.push((coord, (coord.0 - 1, coord.1)));
+                if coord.1 + 1 < self.size {
+                    edges.push(((coord.0, coord.1 + 1), (coord.0 - 1, coord.1 + 1)));
+                }
+            }
         } else if orientation == "v" {
-            edges.push((coord, (coord.0, coord.1 + 1)));
-            edges.push(((coord.0.wrapping_sub(1), coord.1), (coord.0.wrapping_sub(1), coord.1 + 1)));
+            if coord.1 + 1 < self.size {
+                edges.push((coord, (coord.0, coord.1 + 1)));
+                if coord.0 > 0 {
+                    edges.push(((coord.0 - 1, coord.1), (coord.0 - 1, coord.1 + 1)));
+                }
+            }
         }
         
         edges
     }
     
     fn add_wall(&mut self, wall_move: &str, initialise: bool, check: bool) -> bool {
+        if wall_move.len() < 3 {
+            println!("Invalid wall move: {}", wall_move);
+            return false;
+        }
+        
         let position = &wall_move[0..2];
         let orientation = &wall_move[2..];
-        let coord = self.algebraic_to_coord(position);
+        
+        if orientation != "h" && orientation != "v" {
+            println!("Invalid wall orientation: {}", orientation);
+            return false;
+        }
+        
+        // Only parse the position part (first 2 characters)
+        let coord = match self.algebraic_to_coord(position) {
+            c => c,
+            #[allow(unreachable_patterns)]
+            _ => return false,
+        };
         
         let edges = self.get_wall_edges(wall_move);
+        if edges.is_empty() {
+            return false;
+        }
         
         if check && !self.wall_check(self.active_player, wall_move) {
             return false;
@@ -318,14 +398,20 @@ impl Quoridor {
         let position = &wall_move[0..2];
         let orientation = &wall_move[2..];
         
+        let wall_coord = match self.algebraic_to_coord(position) {
+            c => c,
+            #[allow(unreachable_patterns)]
+            _ => return false,
+        };
+        
         if orientation == "v" {
             // Check if horizontal wall exists at same position
-            if self.hwall_positions.contains(&self.algebraic_to_coord(position)) {
+            if self.hwall_positions.contains(&wall_coord) {
                 return false;
             }
         } else if orientation == "h" {
             // Check if vertical wall exists at same position
-            if self.vwall_positions.contains(&self.algebraic_to_coord(position)) {
+            if self.vwall_positions.contains(&wall_coord) {
                 return false;
             }
         }
@@ -386,7 +472,11 @@ impl Quoridor {
     }
     
     fn move_pawn(&mut self, move_str: &str, check: bool) -> bool {
-        let destination = self.algebraic_to_coord(move_str);
+        let destination = match self.algebraic_to_coord(move_str) {
+            c => c,
+            #[allow(unreachable_patterns)]
+            _ => return false,
+        };
         
         if check {
             let legal_moves = self.get_legal_moves(self.active_player);
@@ -459,7 +549,7 @@ impl Quoridor {
         
         // Iterate through all possible wall positions
         for row in 1..self.size {
-            for col in 0..self.size {
+            for col in 0..(self.size - 1) {
                 for orientation in &["h", "v"] {
                     let wall_move = format!("{}{}", self.coord_to_algebraic((row, col)), orientation);
                     if self.wall_check(player, &wall_move) {
@@ -491,15 +581,17 @@ impl Quoridor {
             }
         }
         
-        min_distance
+        if min_distance == usize::MAX { 100 } else { min_distance }
     }
     
     fn win_check(&self, move_str: &str) -> bool {
-        let row = self.algebraic_to_coord(move_str).0;
-        
-        match self.active_player {
-            Player::Player1 => row == 0,
-            Player::Player2 => row == self.size - 1,
+        match self.algebraic_to_coord(move_str) {
+            (row, _) => match self.active_player {
+                Player::Player1 => row == 0,
+                Player::Player2 => row == self.size - 1,
+            },
+            #[allow(unreachable_patterns)]
+            _ => false,
         }
     }
     
@@ -542,41 +634,41 @@ trait Strategy {
     fn choose_move(&mut self, game: &Quoridor) -> Option<String>;
 }
 
-// Random strategy
-struct RandomStrategy {
+// Base implementation for all strategies
+struct QuoridorStrategy {
     name: String,
-    opening_moves: Vec<String>,
+    1ng_moves: Vec<String>,
     move_counter: usize,
 }
 
-impl RandomStrategy {
-    fn new(opening_name: &str, opening_moves: Vec<String>) -> Self {
-        let name = if opening_moves.is_empty() {
-            "Random".to_string()
+impl QuoridorStrategy {
+    fn new(name: &str, opening_name: &str, opening_moves: Vec<String>) -> Self {
+        let full_name = if opening_moves.is_empty() {
+            name.to_string()
         } else {
-            format!("Random-{}", opening_name)
+            format!("{}-{}", name, opening_name)
         };
         
-        RandomStrategy {
-            name,
+        QuoridorStrategy {
+            name: full_name,
             opening_moves,
             move_counter: 0,
         }
     }
-}
-
-impl Strategy for RandomStrategy {
-    fn name(&self) -> String {
-        self.name.clone()
-    }
     
-    fn choose_move(&mut self, game: &Quoridor) -> Option<String> {
+    fn try_opening_move(&mut self, game: &Quoridor) -> Option<String> {
         // Try to use opening move if available
         if self.move_counter < self.opening_moves.len() {
             let move_str = self.opening_moves[self.move_counter].clone();
+            // println!("Trying opening move: {} (player: {})", move_str, game.active_player.name());
+            
             self.move_counter += 1;
             
-            // Check if the opening move is legal
+            // Check if the opening move is a wall move
+            let is_wall_move = move_str.len() == 3 && 
+                              (move_str.ends_with('h') || move_str.ends_with('v'));
+            
+            // Get legal moves
             let legal_pawn_moves = game.get_legal_moves(game.active_player);
             let legal_wall_moves = if game.walls_available[&game.active_player] > 0 {
                 game.get_legal_walls(game.active_player)
@@ -584,16 +676,48 @@ impl Strategy for RandomStrategy {
                 Vec::new()
             };
             
-            let all_legal_moves: Vec<String> = legal_pawn_moves.into_iter()
-                .chain(legal_wall_moves.into_iter())
+            let all_legal_moves: Vec<String> = legal_pawn_moves.iter().cloned()
+                .chain(legal_wall_moves.iter().cloned())
                 .collect();
             
             if all_legal_moves.contains(&move_str) {
+                // println!("Opening move {} is legal", move_str);
                 return Some(move_str);
+            } else {
+                println!("Opening move {} is NOT legal", move_str);
+                // println!("Legal moves are: {:?}", all_legal_moves);
             }
         }
         
-        // If no opening move is available, choose randomly
+        None
+    }
+}
+
+// Random strategy
+struct RandomStrategy {
+    base: QuoridorStrategy,
+}
+
+impl RandomStrategy {
+    fn new(opening_name: &str, opening_moves: Vec<String>) -> Self {
+        RandomStrategy {
+            base: QuoridorStrategy::new("Random", opening_name, opening_moves),
+        }
+    }
+}
+
+impl Strategy for RandomStrategy {
+    fn name(&self) -> String {
+        self.base.name.clone()
+    }
+    
+    fn choose_move(&mut self, game: &Quoridor) -> Option<String> {
+        // Try opening move
+        if let Some(move_str) = self.base.try_opening_move(game) {
+            return Some(move_str);
+        }
+        
+        // Otherwise choose randomly
         let legal_pawn_moves = game.get_legal_moves(game.active_player);
         let legal_wall_moves = if game.walls_available[&game.active_player] > 0 {
             game.get_legal_walls(game.active_player)
@@ -616,56 +740,29 @@ impl Strategy for RandomStrategy {
 
 // ShortestPath strategy
 struct ShortestPathStrategy {
-    name: String,
-    opening_moves: Vec<String>,
-    move_counter: usize,
+    base: QuoridorStrategy,
 }
 
 impl ShortestPathStrategy {
     fn new(opening_name: &str, opening_moves: Vec<String>) -> Self {
-        let name = if opening_moves.is_empty() {
-            "ShortestPath".to_string()
-        } else {
-            format!("ShortestPath-{}", opening_name)
-        };
-        
         ShortestPathStrategy {
-            name,
-            opening_moves,
-            move_counter: 0,
+            base: QuoridorStrategy::new("ShortestPath", opening_name, opening_moves),
         }
     }
 }
 
 impl Strategy for ShortestPathStrategy {
     fn name(&self) -> String {
-        self.name.clone()
+        self.base.name.clone()
     }
     
     fn choose_move(&mut self, game: &Quoridor) -> Option<String> {
-        // Try to use opening move if available
-        if self.move_counter < self.opening_moves.len() {
-            let move_str = self.opening_moves[self.move_counter].clone();
-            self.move_counter += 1;
-            
-            // Check if the opening move is legal
-            let legal_pawn_moves = game.get_legal_moves(game.active_player);
-            let legal_wall_moves = if game.walls_available[&game.active_player] > 0 {
-                game.get_legal_walls(game.active_player)
-            } else {
-                Vec::new()
-            };
-            
-            let all_legal_moves: Vec<String> = legal_pawn_moves.into_iter()
-                .chain(legal_wall_moves.into_iter())
-                .collect();
-            
-            if all_legal_moves.contains(&move_str) {
-                return Some(move_str);
-            }
+        // Try opening move
+        if let Some(move_str) = self.base.try_opening_move(game) {
+            return Some(move_str);
         }
         
-        // If no opening move is available, choose the move that gets closest to goal
+        // Get legal pawn moves
         let legal_pawn_moves = game.get_legal_moves(game.active_player);
         if legal_pawn_moves.is_empty() {
             return None;
@@ -698,61 +795,35 @@ impl Strategy for ShortestPathStrategy {
 
 // Defensive strategy
 struct DefensiveStrategy {
-    name: String,
-    opening_moves: Vec<String>,
-    move_counter: usize,
+    base: QuoridorStrategy,
     wall_preference: f64,
+    offensive_strategy: ShortestPathStrategy,
 }
 
 impl DefensiveStrategy {
     fn new(opening_name: &str, opening_moves: Vec<String>, wall_preference: f64) -> Self {
-        let name = if opening_moves.is_empty() {
-            "Defensive".to_string()
-        } else {
-            format!("Defensive-{}", opening_name)
-        };
-        
         DefensiveStrategy {
-            name,
-            opening_moves,
-            move_counter: 0,
+            base: QuoridorStrategy::new("Defensive", opening_name, opening_moves),
             wall_preference,
+            offensive_strategy: ShortestPathStrategy::new("", Vec::new()),
         }
     }
 }
 
 impl Strategy for DefensiveStrategy {
     fn name(&self) -> String {
-        self.name.clone()
+        self.base.name.clone()
     }
     
     fn choose_move(&mut self, game: &Quoridor) -> Option<String> {
-        // Try to use opening move if available
-        if self.move_counter < self.opening_moves.len() {
-            let move_str = self.opening_moves[self.move_counter].clone();
-            self.move_counter += 1;
-            
-            // Check if the opening move is legal
-            let legal_pawn_moves = game.get_legal_moves(game.active_player);
-            let legal_wall_moves = if game.walls_available[&game.active_player] > 0 {
-                game.get_legal_walls(game.active_player)
-            } else {
-                Vec::new()
-            };
-            
-            let all_legal_moves: Vec<String> = legal_pawn_moves.into_iter()
-                .chain(legal_wall_moves.into_iter())
-                .collect();
-            
-            if all_legal_moves.contains(&move_str) {
-                return Some(move_str);
-            }
+        // Try opening move
+        if let Some(move_str) = self.base.try_opening_move(game) {
+            return Some(move_str);
         }
         
         let player = game.active_player;
         let opponent = player.opponent();
         
-        let legal_pawn_moves = game.get_legal_moves(player);
         let legal_wall_moves = if game.walls_available[&player] > 0 {
             game.get_legal_walls(player)
         } else {
@@ -785,8 +856,469 @@ impl Strategy for DefensiveStrategy {
         }
         
         // If no wall placed or prefer to move pawn
-        let mut shortest_path = ShortestPathStrategy::new("", Vec::new());
-        shortest_path.choose_move(game)
+        self.offensive_strategy.choose_move(game)
+    }
+}
+
+// Balanced Strategy
+struct BalancedStrategy {
+    base: QuoridorStrategy,
+    defense_weight: f64,
+    defensive_strategy: DefensiveStrategy,
+    offensive_strategy: ShortestPathStrategy,
+}
+
+impl BalancedStrategy {
+    fn new(opening_name: &str, opening_moves: Vec<String>, defense_weight: f64) -> Self {
+        BalancedStrategy {
+            base: QuoridorStrategy::new("Balanced", opening_name, opening_moves),
+            defense_weight,
+            defensive_strategy: DefensiveStrategy::new("", Vec::new(), 1.0),
+            offensive_strategy: ShortestPathStrategy::new("", Vec::new()),
+        }
+    }
+}
+
+impl Strategy for BalancedStrategy {
+    fn name(&self) -> String {
+        self.base.name.clone()
+    }
+    
+    fn choose_move(&mut self, game: &Quoridor) -> Option<String> {
+        // Try opening move
+        if let Some(move_str) = self.base.try_opening_move(game) {
+            return Some(move_str);
+        }
+        
+        let player = game.active_player;
+        
+        // Randomly choose between offensive and defensive play
+        if rand::random::<f64>() < self.defense_weight && game.walls_available[&player] > 0 {
+            self.defensive_strategy.choose_move(game)
+        } else {
+            self.offensive_strategy.choose_move(game)
+        }
+    }
+}
+
+// Adaptive Strategy
+struct AdaptiveStrategy {
+    base: QuoridorStrategy,
+    defensive_strategy: DefensiveStrategy,
+    offensive_strategy: ShortestPathStrategy,
+}
+
+impl AdaptiveStrategy {
+    fn new(opening_name: &str, opening_moves: Vec<String>) -> Self {
+        AdaptiveStrategy {
+            base: QuoridorStrategy::new("Adaptive", opening_name, opening_moves),
+            defensive_strategy: DefensiveStrategy::new("", Vec::new(), 0.7),
+            offensive_strategy: ShortestPathStrategy::new("", Vec::new()),
+        }
+    }
+}
+
+impl Strategy for AdaptiveStrategy {
+    fn name(&self) -> String {
+        self.base.name.clone()
+    }
+    
+    fn choose_move(&mut self, game: &Quoridor) -> Option<String> {
+        // Try opening move
+        if let Some(move_str) = self.base.try_opening_move(game) {
+            return Some(move_str);
+        }
+        
+        let player = game.active_player;
+        let opponent = player.opponent();
+        
+        // Calculate distances to goal for both players
+        let player_distance = game.distance_to_goal(player);
+        let opponent_distance = game.distance_to_goal(opponent);
+        
+        // If we're closer to winning, play offensively
+        if player_distance < opponent_distance {
+            self.offensive_strategy.choose_move(game)
+        } else {
+            // Otherwise play defensively
+            self.defensive_strategy.choose_move(game)
+        }
+    }
+}
+
+// Minimax Strategy
+struct MinimaxStrategy {
+    base: QuoridorStrategy,
+    depth: usize,
+    w_position_diff: f64,
+    w_attacking: f64,
+    w_defensive: f64,
+}
+
+impl MinimaxStrategy {
+    fn new(opening_name: &str, opening_moves: Vec<String>, depth: usize) -> Self {
+        let name = format!("Minimax{}", depth);
+        
+        MinimaxStrategy {
+            base: QuoridorStrategy::new(&name, opening_name, opening_moves),
+            depth,
+            w_position_diff: 0.6001,
+            w_attacking: 14.45,
+            w_defensive: 6.52,
+        }
+    }
+    
+    fn evaluate(&self, game: &Quoridor) -> f64 {
+        let player = game.active_player;
+        let opponent = player.opponent();
+        
+        // f2: Position difference feature
+        let f2 = game.distance_to_goal(opponent) as f64 - game.distance_to_goal(player) as f64;
+        
+        // f3: Attacking feature
+        let moves_next_player = game.moves_to_next_row(player);
+        let f3 = 1.0 / (moves_next_player as f64);
+        
+        // f4: Defensive feature
+        let moves_next_opponent = game.moves_to_next_row(opponent);
+        let f4 = moves_next_opponent as f64;
+        
+        // Combined evaluation
+        self.w_position_diff * f2 + self.w_attacking * f3 + self.w_defensive * f4
+    }
+    
+    fn minimax(&self, game: &Quoridor, depth: usize, alpha: f64, beta: f64, maximizing: bool) -> f64 {
+        // Check if game is over or max depth reached
+        if depth == 0 || game.win_check(&game.last_move) {
+            return self.evaluate(game);
+        }
+        
+        let player = game.active_player;
+        let legal_pawn_moves = game.get_legal_moves(player);
+        let legal_wall_moves = if game.walls_available[&player] > 0 {
+            game.get_legal_walls(player)
+        } else {
+            Vec::new()
+        };
+        
+        // Use iter() instead of into_iter()
+        let all_moves: Vec<String> = legal_pawn_moves.iter().cloned()
+            .chain(legal_wall_moves.iter().cloned())
+            .collect();
+        
+        if all_moves.is_empty() {
+            return self.evaluate(game);
+        }
+        
+        if maximizing {
+            let mut max_eval = f64::NEG_INFINITY;
+            for move_str in &all_moves {
+                let mut temp_game = game.clone();
+                
+                if move_str.len() == 3 && (move_str.ends_with('h') || move_str.ends_with('v')) {
+                    temp_game.add_wall(move_str, false, false);
+                } else {
+                    temp_game.move_pawn(move_str, false);
+                }
+                
+                let eval = self.minimax(&temp_game, depth - 1, alpha, beta, false);
+                max_eval = max_eval.max(eval);
+                
+                let mut new_alpha = alpha;
+                new_alpha = new_alpha.max(eval);
+                if beta <= new_alpha {
+                    break; // Beta cutoff
+                }
+            }
+            max_eval
+        } else {
+            let mut min_eval = f64::INFINITY;
+            for move_str in &all_moves {
+                let mut temp_game = game.clone();
+                
+                if move_str.len() == 3 && (move_str.ends_with('h') || move_str.ends_with('v')) {
+                    temp_game.add_wall(move_str, false, false);
+                } else {
+                    temp_game.move_pawn(move_str, false);
+                }
+                
+                let eval = self.minimax(&temp_game, depth - 1, alpha, beta, true);
+                min_eval = min_eval.min(eval);
+                
+                let mut new_beta = beta;
+                new_beta = new_beta.min(eval);
+                if new_beta <= alpha {
+                    break; // Alpha cutoff
+                }
+            }
+            min_eval
+        }
+    }
+}
+
+
+impl Strategy for MinimaxStrategy {
+    fn name(&self) -> String {
+        self.base.name.clone()
+    }
+    
+    fn choose_move(&mut self, game: &Quoridor) -> Option<String> {
+        // Try opening move
+        if let Some(move_str) = self.base.try_opening_move(game) {
+            return Some(move_str);
+        }
+        
+        let player = game.active_player;
+        let legal_pawn_moves = game.get_legal_moves(player);
+        let legal_wall_moves = if game.walls_available[&player] > 0 {
+            game.get_legal_walls(player)
+        } else {
+            Vec::new()
+        };
+        
+        // Use iter() instead of into_iter() to avoid moving the vectors
+        let all_moves: Vec<String> = legal_pawn_moves.iter().cloned()
+            .chain(legal_wall_moves.iter().cloned())
+            .collect();
+        
+        if all_moves.is_empty() {
+            return None;
+        }
+        
+        // Check for immediate winning move
+        for move_str in &legal_pawn_moves {
+            if game.win_check(move_str) {
+                return Some(move_str.clone());
+            }
+        }
+        
+        // Limit the number of wall moves to consider for performance
+        let mut wall_moves_to_check = legal_wall_moves.clone(); // Clone here
+        if wall_moves_to_check.len() > 10 {
+            let mut rng = rand::thread_rng();
+            wall_moves_to_check.shuffle(&mut rng);
+            wall_moves_to_check.truncate(10);
+        }
+        
+        let mut best_move = None;
+        let mut best_score = f64::NEG_INFINITY;
+        
+        // Evaluate pawn moves
+        for move_str in &legal_pawn_moves {
+            let mut temp_game = game.clone();
+            temp_game.move_pawn(move_str, false);
+            
+            let score = self.minimax(&temp_game, self.depth - 1, f64::NEG_INFINITY, f64::INFINITY, false);
+            
+            if score > best_score {
+                best_score = score;
+                best_move = Some(move_str.clone());
+            }
+        }
+        
+        // Evaluate wall moves
+        for move_str in &wall_moves_to_check {
+            let mut temp_game = game.clone();
+            temp_game.add_wall(move_str, false, false);
+            
+            let score = self.minimax(&temp_game, self.depth - 1, f64::NEG_INFINITY, f64::INFINITY, false);
+            
+            if score > best_score {
+                best_score = score;
+                best_move = Some(move_str.clone());
+            }
+        }
+        
+        best_move
+    }
+}
+
+// Mirror Strategy
+struct MirrorStrategy {
+    base: QuoridorStrategy,
+    backup_strategy: Box<dyn Strategy>,
+    center: Option<(f64, f64)>,
+}
+
+impl MirrorStrategy {
+    fn new(opening_name: &str, opening_moves: Vec<String>) -> Self {
+        MirrorStrategy {
+            base: QuoridorStrategy::new("Mirror", opening_name, opening_moves),
+            backup_strategy: Box::new(AdaptiveStrategy::new("", Vec::new())),
+            center: None,
+        }
+    }
+    
+    fn calculate_mirrored_position(&self, game: &Quoridor, opponent: Player) -> Coord {
+        let center = match self.center {
+            Some(c) => c,
+            None => ((game.size - 1) as f64 / 2.0, (game.size - 1) as f64 / 2.0),
+        };
+        
+        let opponent_pos = game.pawn_positions[&opponent];
+        
+        // Calculate mirrored position
+        let mirrored_row = 2.0 * center.0 - opponent_pos.0 as f64;
+        let mirrored_col = 2.0 * center.1 - opponent_pos.1 as f64;
+        
+        // Ensure coordinates are within bounds
+        let row = (mirrored_row.round() as i32).max(0).min((game.size - 1) as i32) as usize;
+        let col = (mirrored_col.round() as i32).max(0).min((game.size - 1) as i32) as usize;
+        
+        (row, col)
+    }
+    
+    fn find_best_move_toward(&self, game: &Quoridor, target_pos: Coord) -> Option<String> {
+        let player = game.active_player;
+        let current_pos = game.pawn_positions[&player];
+        let legal_moves = game.get_legal_moves(player);
+        
+        if legal_moves.is_empty() {
+            return None;
+        }
+        
+        let mut best_move = None;
+        let mut best_distance = usize::MAX;
+        
+        for move_str in &legal_moves {
+            let pos = match game.algebraic_to_coord(move_str) {
+                p => p,
+                _ => continue,
+            };
+            
+            // Calculate Manhattan distance to target
+            let distance = abs_diff(pos.0, target_pos.0) + abs_diff(pos.1, target_pos.1);
+            
+            // Slightly favor moves that also progress toward goal
+            let mut goal_bonus = 0;
+            for &goal in &game.goal_positions[&player] {
+                let current_to_goal = abs_diff(current_pos.0, goal.0) + abs_diff(current_pos.1, goal.1);
+                let move_to_goal = abs_diff(pos.0, goal.0) + abs_diff(pos.1, goal.1);
+                
+                if move_to_goal < current_to_goal {
+                    goal_bonus = 1;
+                    break;
+                }
+            }
+            
+            // Lower score is better
+            let total_score = distance.saturating_sub(goal_bonus);
+            
+            if total_score < best_distance {
+                best_distance = total_score;
+                best_move = Some(move_str.clone());
+            }
+        }
+        
+        best_move
+    }
+    
+    fn mirror_opponent_walls(&self, game: &Quoridor, opponent: Player) -> Option<String> {
+        if game.walls_available[&game.active_player] <= 0 {
+            return None;
+        }
+        
+        // Get set of all walls on the board
+        let mut all_walls = HashSet::new();
+        for &wall in &game.hwall_positions {
+            all_walls.insert(format!("{}h", game.coord_to_algebraic(wall)));
+        }
+        for &wall in &game.vwall_positions {
+            all_walls.insert(format!("{}v", game.coord_to_algebraic(wall)));
+        }
+        
+        let legal_walls = game.get_legal_walls(game.active_player);
+        let center = match self.center {
+            Some(c) => c,
+            None => ((game.size - 1) as f64 / 2.0, (game.size - 1) as f64 / 2.0),
+        };
+        
+        // For each wall, calculate its mirrored position
+        for wall in &all_walls {
+            let position = &wall[0..2];
+            let orientation = &wall[2..];
+            
+            let wall_pos = match game.algebraic_to_coord(position) {
+                p => p,
+                _ => continue,
+            };
+            
+            // Calculate mirrored wall position
+            let mirrored_row = 2.0 * center.0 - wall_pos.0 as f64;
+            let mirrored_col = 2.0 * center.1 - wall_pos.1 as f64;
+            
+            // Ensure coordinates are within bounds
+            let row = (mirrored_row.round() as i32).max(1).min((game.size - 1) as i32) as usize;
+            let col = (mirrored_col.round() as i32).max(0).min((game.size - 1) as i32) as usize;
+            
+            let mirrored_wall = format!("{}{}", game.coord_to_algebraic((row, col)), orientation);
+            
+            // If the mirrored wall is legal and not already placed
+            if legal_walls.contains(&mirrored_wall) && !all_walls.contains(&mirrored_wall) {
+                return Some(mirrored_wall);
+            }
+        }
+        
+        None
+    }
+}
+
+impl Strategy for MirrorStrategy {
+    fn name(&self) -> String {
+        self.base.name.clone()
+    }
+    
+    fn choose_move(&mut self, game: &Quoridor) -> Option<String> {
+        // Try opening move
+        if let Some(move_str) = self.base.try_opening_move(game) {
+            return Some(move_str);
+        }
+        
+        // Calculate board center if not already done
+        if self.center.is_none() {
+            self.center = Some(((game.size - 1) as f64 / 2.0, (game.size - 1) as f64 / 2.0));
+        }
+        
+        let player = game.active_player;
+        let opponent = player.opponent();
+        
+        // First priority: move toward the mirrored position of the opponent
+        let mirror_pos = self.calculate_mirrored_position(game, opponent);
+        if game.pawn_positions[&player] != mirror_pos {
+            if let Some(mirror_move) = self.find_best_move_toward(game, mirror_pos) {
+                return Some(mirror_move);
+            }
+        }
+        
+        // Second priority: try to mirror any walls the opponent has placed
+        if let Some(mirror_wall) = self.mirror_opponent_walls(game, opponent) {
+            return Some(mirror_wall);
+        }
+        
+        // If no good mirror move is found, use backup strategy
+        self.backup_strategy.choose_move(game)
+    }
+}
+
+// Utility functions
+fn abs_diff(a: usize, b: usize) -> usize {
+    if a > b { a - b } else { b - a }
+}
+
+// Basic opening moves
+fn get_opening_moves(opening_name: &str, player: Player) -> Vec<String> {
+    match (opening_name, player) {
+        ("No Opening", Player::Player1) => vec!["e2".to_string()],
+        ("No Opening", Player::Player2) => vec!["e8".to_string()],
+        
+        // Fix the wall notation - these had potential issues
+        ("Sidewall Opening", Player::Player1) => vec!["e2".to_string(), "c3h".to_string()],
+        ("Sidewall Opening", Player::Player2) => vec!["e8".to_string(), "a3h".to_string()],
+        
+        ("Standard Opening", Player::Player1) => vec!["e2".to_string(), "e3".to_string(), "e4".to_string(), "e3v".to_string()],
+        ("Standard Opening", Player::Player2) => vec!["e8".to_string(), "e7".to_string(), "e6".to_string(), "e6v".to_string()],
+        
+        _ => Vec::new(),
     }
 }
 
@@ -817,6 +1349,82 @@ impl Tournament {
         }
     }
     
+    fn create_strategy(&self, strategy_name: &str, opening_name: &str, player: Player) -> Box<dyn Strategy> {
+        let opening_moves = get_opening_moves(opening_name, player);
+        
+        match strategy_name {
+            "Random" => Box::new(RandomStrategy::new(opening_name, opening_moves)),
+            "ShortestPath" => Box::new(ShortestPathStrategy::new(opening_name, opening_moves)),
+            "Defensive" => Box::new(DefensiveStrategy::new(opening_name, opening_moves, 0.7)),
+            "Balanced" => Box::new(BalancedStrategy::new(opening_name, opening_moves, 0.5)),
+            "Adaptive" => Box::new(AdaptiveStrategy::new(opening_name, opening_moves)),
+            "Minimax1" => Box::new(MinimaxStrategy::new(opening_name, opening_moves, 1)),
+            "Minimax2" => Box::new(MinimaxStrategy::new(opening_name, opening_moves, 2)),
+            "Mirror" => Box::new(MirrorStrategy::new(opening_name, opening_moves)),
+            _ => Box::new(RandomStrategy::new(opening_name, opening_moves)), // Default
+        }
+    }
+
+    fn run_debug_match(&mut self, strategy1_name: &str, strategy2_name: &str, opening_name: &str) {
+        println!("\n=== DEBUG MATCH: {} vs {} with {} ===", 
+                strategy1_name, strategy2_name, opening_name);
+        
+        let mut first_strategy = self.create_strategy(strategy1_name, opening_name, Player::Player1);
+        let mut second_strategy = self.create_strategy(strategy2_name, opening_name, Player::Player2);
+        
+        // Setup the game
+        let mut game = Quoridor::new(self.board_size, self.walls, None);
+        let mut move_count = 0;
+        
+        // Play the game
+        loop {
+            let current_player = game.active_player;
+            let current_strategy = if current_player == Player::Player1 { 
+                &mut first_strategy 
+            } else { 
+                &mut second_strategy 
+            };
+            
+            println!("Turn {}: {}'s move", move_count, current_player.name());
+            let move_result = current_strategy.choose_move(&game);
+            
+            if move_result.is_none() {
+                println!("No valid moves, {} loses", current_player.name());
+                break;
+            }
+            
+            let move_str = move_result.unwrap();
+            println!("Move chosen: {}", move_str);
+            
+            // Check for win
+            if game.win_check(&move_str) {
+                println!("{} wins with move {}", current_player.name(), move_str);
+                break;
+            }
+            
+            // Apply the move
+            let move_success = if move_str.len() == 3 && 
+                               (move_str.ends_with('h') || move_str.ends_with('v')) {
+                game.add_wall(&move_str, false, true)
+            } else {
+                game.move_pawn(&move_str, true)
+            };
+            
+            if !move_success {
+                println!("MOVE FAILED: {}", move_str);
+                break;
+            }
+            
+            move_count += 1;
+            
+            // Maximum moves safeguard
+            if move_count > 50 {
+                println!("Game drawn after {} moves", move_count);
+                break;
+            }
+        }
+    }
+    
     fn run_match(
         &mut self,
         strategy1_name: &str,
@@ -830,32 +1438,16 @@ impl Tournament {
         
         for game_num in 0..self.games_per_match {
             // Alternate who goes first
-            let (first_player, second_player) = if game_num % 2 == 0 {
-                (Player::Player1, Player::Player2)
-            } else {
-                (Player::Player2, Player::Player1)
-            };
+            let (first_strategy_type, second_strategy_type, first_player, second_player) = 
+                if game_num % 2 == 0 {
+                    (strategy1_name, strategy2_name, Player::Player1, Player::Player2)
+                } else {
+                    (strategy2_name, strategy1_name, Player::Player1, Player::Player2)
+                };
             
             // Create strategies
-            let mut first_strategy: Box<dyn Strategy> = if strategy1_name == "Random" {
-                Box::new(RandomStrategy::new(opening_name, Vec::new()))
-            } else if strategy1_name == "ShortestPath" {
-                Box::new(ShortestPathStrategy::new(opening_name, Vec::new()))
-            } else if strategy1_name == "Defensive" {
-                Box::new(DefensiveStrategy::new(opening_name, Vec::new(), 0.7))
-            } else {
-                Box::new(RandomStrategy::new(opening_name, Vec::new()))
-            };
-            
-            let mut second_strategy: Box<dyn Strategy> = if strategy2_name == "Random" {
-                Box::new(RandomStrategy::new(opening_name, Vec::new()))
-            } else if strategy2_name == "ShortestPath" {
-                Box::new(ShortestPathStrategy::new(opening_name, Vec::new()))
-            } else if strategy2_name == "Defensive" {
-                Box::new(DefensiveStrategy::new(opening_name, Vec::new(), 0.7))
-            } else {
-                Box::new(RandomStrategy::new(opening_name, Vec::new()))
-            };
+            let mut first_strategy = self.create_strategy(first_strategy_type, opening_name, first_player);
+            let mut second_strategy = self.create_strategy(second_strategy_type, opening_name, second_player);
             
             // Setup the game
             let mut game = Quoridor::new(self.board_size, self.walls, None);
@@ -869,15 +1461,15 @@ impl Tournament {
                 } else { 
                     &mut second_strategy 
                 };
-                
+
                 let move_result = current_strategy.choose_move(&game);
                 
                 if move_result.is_none() {
                     // No valid moves, current player loses
                     if current_player == first_player {
-                        s2_wins += 1;
+                        if first_strategy_type == strategy1_name { s2_wins += 1; } else { s1_wins += 1; }
                     } else {
-                        s1_wins += 1;
+                        if second_strategy_type == strategy1_name { s2_wins += 1; } else { s1_wins += 1; }
                     }
                     break;
                 }
@@ -887,9 +1479,9 @@ impl Tournament {
                 // Check for win
                 if game.win_check(&move_str) {
                     if current_player == first_player {
-                        s1_wins += 1;
+                        if first_strategy_type == strategy1_name { s1_wins += 1; } else { s2_wins += 1; }
                     } else {
-                        s2_wins += 1;
+                        if second_strategy_type == strategy1_name { s1_wins += 1; } else { s2_wins += 1; }
                     }
                     move_count += 1;
                     break;
@@ -928,8 +1520,22 @@ impl Tournament {
     }
     
     fn run_tournament(&mut self, display: bool) {
-        let strategy_names = vec!["Random", "ShortestPath", "Defensive"];
-        let opening_names = vec!["No Opening", "Sidewall Opening", "Standard Opening"];
+        let strategy_names = vec![
+            "Random", 
+            "ShortestPath", 
+            "Defensive", 
+            "Balanced", 
+            "Adaptive", 
+            "Minimax1",
+            "Minimax2",
+            "Mirror"
+        ];
+        
+        let opening_names = vec![
+            "No Opening", 
+            "Sidewall Opening", 
+            "Standard Opening"
+        ];
         
         for opening_name in &opening_names {
             for i in 0..strategy_names.len() {
@@ -989,17 +1595,24 @@ impl Tournament {
 }
 
 fn main() {
+    // Enable debugging if needed
+    let debug_enabled = env::var("QUORIDOR_DEBUG").is_ok();
+
     println!("Running Quoridor Tournament...");
     
-    // Create tournament
+    if debug_enabled {
+        println!("Debug mode enabled");
+    }
+    
+    // Create tournament with smaller parameters for testing
     let mut tournament = Tournament::new(
         9,   // board size
         10,  // walls
-        50,  // games per match
+        10,   // games per match 
     );
     
     // Run the tournament
-    tournament.run_tournament(true);
+    tournament.run_tournament(debug_enabled);
     
     // Write results to CSV
     match tournament.write_results_to_csv("rust_tournament_results.csv") {
