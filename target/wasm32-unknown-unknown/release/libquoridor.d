@@ -1,0 +1,1 @@
+/home/olive/Documents/VSCode/Game\ Theory/quoridor/target/wasm32-unknown-unknown/release/libquoridor.rlib: /home/olive/Documents/VSCode/Game\ Theory/quoridor/src/lib.rs /home/olive/Documents/VSCode/Game\ Theory/quoridor/src/main.rs

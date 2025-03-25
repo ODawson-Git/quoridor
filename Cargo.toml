@@ -3,7 +3,31 @@ name = "quoridor"
 version = "0.1.0"
 edition = "2021"
 
+# Both library and binary targets
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "quoridor"
+path = "src/main.rs"
+
 [dependencies]
 petgraph = "0.6.3"
 csv = "1.2.2"
 rand = "0.8.5"
+wasm-bindgen = "0.2.84"
+js-sys = "0.3.61"
+wasm-bindgen-futures = "0.4.34"
+console_error_panic_hook = "0.1.7"
+getrandom = { version = "0.2", features = ["js"] }
+
+[dependencies.web-sys]
+version = "0.3.61"
+features = [
+  "console",
+]
+
+[profile.release]
+opt-level = 3
+lto = true
