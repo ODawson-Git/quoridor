@@ -3,9 +3,7 @@ import { AlertCircle } from 'lucide-react';
 import QuoridorBoard from './QuoridorBoard';
 
 // Import the WebAssembly module - this will be available after we build
-import { QuoridorGame as WasmQuoridor, wasm_log } from '../wasm/quoridor';
-
-// Constants
+import init, { QuoridorGame as WasmQuoridor, wasm_log } from '../wasm/quoridor';// Constants
 const BOARD_SIZE = 9;
 const INITIAL_WALLS = 10;
 
@@ -85,6 +83,9 @@ const QuoridorGameComponent = () => {
   useEffect(() => {
     const initWasm = async () => {
       try {
+        // Initialize the WASM module
+        await init();
+        
         // Create a new game instance
         const game = new WasmQuoridor(BOARD_SIZE, INITIAL_WALLS);
         setWasmGame(game);
@@ -94,7 +95,7 @@ const QuoridorGameComponent = () => {
         setWasmError(error.toString());
       }
     };
-
+  
     initWasm();
     
     // Clean up on unmount

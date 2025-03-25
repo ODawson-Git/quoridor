@@ -1,0 +1,15 @@
+{
+  "name": "quoridor",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "quoridor_bg.wasm",
+    "quoridor.js",
+    "quoridor.d.ts"
+  ],
+  "main": "quoridor.js",
+  "types": "quoridor.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
