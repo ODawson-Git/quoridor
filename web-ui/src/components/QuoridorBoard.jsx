@@ -25,23 +25,35 @@ const QuoridorBoard = ({
     return `${colLetter}${rowNumber}`;
   };
   
-  // Simplified - get wall color based on active player only
+  // Get wall color based on wall position and move history
   const getWallColor = (player) => {
     if (player === 'player1') return 'bg-blue-600';
     if (player === 'player2') return 'bg-red-600';
     return 'bg-gray-700';
   };
   
-  // Find which player placed a specific wall
+  // Find which player placed a specific wall - improved version
   const getWallPlayer = (orientation, row, col) => {
-    const wallCoord = `${row},${col}`;
-    const wall = boardState.moveHistory?.find(move => 
+    // Convert to algebraic notation for matching against move history
+    const algebraicPosition = toAlgebraicNotation(row, col);
+    const wallNotation = `${algebraicPosition}${orientation}`;
+    
+    // Find the move in history matching this wall
+    const wallMove = boardState.moveHistory?.find(move => 
       move.type === 'wall' && 
-      move.orientation === orientation && 
-      (orientation === 'h' ? boardState.hWalls.has(wallCoord) : boardState.vWalls.has(wallCoord))
+      move.orientation === orientation &&
+      move.move.startsWith(algebraicPosition)
     );
     
-    return wall?.player || null;
+    // If found in history, return that player
+    if (wallMove) {
+      return wallMove.player;
+    }
+    
+    // Fallback color assignment based on position in move sequence
+    // This ensures walls always have a consistent color even if history matching fails
+    const index = [...boardState.hWalls, ...boardState.vWalls].indexOf(`${row},${col}`);
+    return index % 2 === 0 ? 'player1' : 'player2';
   };
   
   // Check if a cell is a legal move

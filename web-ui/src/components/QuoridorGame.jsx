@@ -67,8 +67,7 @@ const QuoridorGameComponent = () => {
     lastMove: null,
   });
 
-  // Game mode and configuration
-  const [gameMode, setGameMode] = useState('play'); // 'play' or 'watch'
+  // Game configuration
   const [player1Strategy, setPlayer1Strategy] = useState('Human');
   const [player2Strategy, setPlayer2Strategy] = useState('Adaptive');
   const [selectedOpening, setSelectedOpening] = useState('No Opening');
@@ -130,6 +129,11 @@ const QuoridorGameComponent = () => {
     
     return { row, col };
   }, []);
+
+  // Determine if we're in AI vs AI mode (both players are AI)
+  const isAiVsAiMode = useCallback(() => {
+    return player1Strategy !== 'Human' && player2Strategy !== 'Human';
+  }, [player1Strategy, player2Strategy]);
 
   // Fix for the circular dependency - Define updateLegalMoves as a regular function
   // that we'll use inside updateBoardStateFromWasm
@@ -715,7 +719,7 @@ const QuoridorGameComponent = () => {
         ? player1Strategy 
         : player2Strategy;
       
-      if (currentStrategy !== 'Human' || gameMode === 'watch') {
+      if (currentStrategy !== 'Human') {
         const timerId = setTimeout(() => {
           makeAiMove();
         }, AI_MOVE_SPEED);
@@ -760,7 +764,7 @@ const QuoridorGameComponent = () => {
       }
     }
   }, [
-    wasmLoaded, boardState, gameMode, isGameActive, 
+    wasmLoaded, boardState, isGameActive, 
     isThinking, makeAiMove, player1Strategy, 
     player2Strategy, winner, nextPawnMoves.length
   ]);
@@ -933,21 +937,8 @@ const QuoridorGameComponent = () => {
         </div>
       )}
       
-      {/* Game configuration */}
+      {/* Game configuration - removed game mode selector */}
       <div className="flex flex-wrap gap-4 mb-4 w-full max-w-4xl">
-        <div className="flex flex-col">
-          <label className="text-sm font-medium">Game Mode</label>
-          <select 
-            className="border rounded px-2 py-1"
-            value={gameMode}
-            onChange={(e) => setGameMode(e.target.value)}
-            disabled={isGameActive || !wasmLoaded}
-          >
-            <option value="play">Play</option>
-            <option value="watch">Watch AI vs. AI</option>
-          </select>
-        </div>
-        
         <div className="flex flex-col">
           <label className="text-sm font-medium">Player 1 (Blue)</label>
           <select 
@@ -956,7 +947,7 @@ const QuoridorGameComponent = () => {
             onChange={(e) => setPlayer1Strategy(e.target.value)}
             disabled={isGameActive || !wasmLoaded}
           >
-            {gameMode === 'play' && <option value="Human">Human</option>}
+            <option value="Human">Human</option>
             {STRATEGIES.filter(s => s !== 'Human').map(strategy => (
               <option key={strategy} value={strategy}>{strategy}</option>
             ))}
@@ -971,7 +962,7 @@ const QuoridorGameComponent = () => {
             onChange={(e) => setPlayer2Strategy(e.target.value)}
             disabled={isGameActive || !wasmLoaded}
           >
-            {gameMode === 'play' && <option value="Human">Human</option>}
+            <option value="Human">Human</option>
             {STRATEGIES.filter(s => s !== 'Human').map(strategy => (
               <option key={strategy} value={strategy}>{strategy}</option>
             ))}
@@ -1002,6 +993,13 @@ const QuoridorGameComponent = () => {
           </button>
         </div>
       </div>
+      
+      {/* Game mode indicator - shows when in AI vs AI mode */}
+      {isAiVsAiMode() && (
+        <div className="mb-2 bg-blue-100 p-2 rounded w-full max-w-4xl">
+          <p className="text-center font-medium">AI vs AI Mode: {player1Strategy} vs {player2Strategy}</p>
+        </div>
+      )}
       
       {/* Status area with fixed height to prevent shifting */}
       <div className="h-16 mb-2 w-full max-w-4xl">
