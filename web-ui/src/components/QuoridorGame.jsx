@@ -3,7 +3,9 @@ import { AlertCircle } from 'lucide-react';
 import QuoridorBoard from './QuoridorBoard';
 
 // Import the WebAssembly module - this will be available after we build
-import init, { QuoridorGame as WasmQuoridor, wasm_log } from '../wasm/pkg/quoridor';const BOARD_SIZE = 9;
+import init, { QuoridorGame as WasmQuoridor, wasm_log } from '../wasm/pkg/quoridor';
+
+const BOARD_SIZE = 9;
 const INITIAL_WALLS = 10;
 
 // Player enum
@@ -68,7 +70,6 @@ const QuoridorGameComponent = () => {
   const [gameMode, setGameMode] = useState('play'); // 'play' or 'watch'
   const [player1Strategy, setPlayer1Strategy] = useState('Human');
   const [player2Strategy, setPlayer2Strategy] = useState('Adaptive');
-  const [gameSpeed, setGameSpeed] = useState(1000); // milliseconds
   const [selectedOpening, setSelectedOpening] = useState('No Opening');
   const [isGameActive, setIsGameActive] = useState(false);
   const [winner, setWinner] = useState(null);
@@ -182,12 +183,16 @@ const QuoridorGameComponent = () => {
       const legalMoves = [];
       
       // Convert from algebraic notation to coordinates
-      legalPawnMovesStr.forEach(moveStr => {
-        const coord = fromAlgebraicNotation(moveStr);
-        if (coord) {
-          legalMoves.push(coord);
-        }
-      });
+      if (Array.isArray(legalPawnMovesStr)) {
+        legalPawnMovesStr.forEach(moveStr => {
+          const coord = fromAlgebraicNotation(moveStr);
+          if (coord) {
+            legalMoves.push(coord);
+          }
+        });
+      } else {
+        console.warn("Legal pawn moves returned unexpected format:", legalPawnMovesStr);
+      }
       
       setNextPawnMoves(legalMoves);
       
@@ -196,19 +201,23 @@ const QuoridorGameComponent = () => {
       const hWalls = [];
       const vWalls = [];
       
-      legalWallsStr.forEach(wallStr => {
-        if (wallStr.endsWith('h')) {
-          const coord = fromAlgebraicNotation(wallStr.slice(0, -1));
-          if (coord) {
-            hWalls.push(coord);
+      if (Array.isArray(legalWallsStr)) {
+        legalWallsStr.forEach(wallStr => {
+          if (wallStr.endsWith('h')) {
+            const coord = fromAlgebraicNotation(wallStr.slice(0, -1));
+            if (coord) {
+              hWalls.push(coord);
+            }
+          } else if (wallStr.endsWith('v')) {
+            const coord = fromAlgebraicNotation(wallStr.slice(0, -1));
+            if (coord) {
+              vWalls.push(coord);
+            }
           }
-        } else if (wallStr.endsWith('v')) {
-          const coord = fromAlgebraicNotation(wallStr.slice(0, -1));
-          if (coord) {
-            vWalls.push(coord);
-          }
-        }
-      });
+        });
+      } else {
+        console.warn("Legal walls returned unexpected format:", legalWallsStr);
+      }
       
       setNextWallMoves({ h: hWalls, v: vWalls });
       
@@ -216,7 +225,7 @@ const QuoridorGameComponent = () => {
       console.error("Error updating legal moves:", error);
       setMessage(`Error: ${error.toString()}`);
     }
-  }, [wasmGame, isGameActive, fromAlgebraicNotation]);
+  }, [wasmGame, isGameActive, fromAlgebraicNotation, setMessage]);
 
   // Move pawn to the specified position
   const movePawn = useCallback((row, col) => {
@@ -309,9 +318,13 @@ const QuoridorGameComponent = () => {
     const isLegalMove = nextPawnMoves.some(move => move.row === row && move.col === col);
     
     if (isLegalMove) {
-      movePawn(row, col);
+      const success = movePawn(row, col);
+      if (!success) {
+        console.error("Failed to move pawn to", row, col);
+        setMessage("Error: Failed to move pawn");
+      }
     }
-  }, [wasmGame, isGameActive, winner, boardState.activePlayer, player1Strategy, player2Strategy, nextPawnMoves, movePawn]);
+  }, [wasmGame, isGameActive, winner, boardState.activePlayer, player1Strategy, player2Strategy, nextPawnMoves, movePawn, setMessage]);
 
   // Handle wall placement
   const handleWallClick = useCallback((row, col, orientation) => {
@@ -339,26 +352,39 @@ const QuoridorGameComponent = () => {
   const resetGame = useCallback(() => {
     if (!wasmGame) return;
     
-    wasmGame.reset_game();
-    
-    const center = Math.floor(BOARD_SIZE / 2);
-    setBoardState({
-      size: BOARD_SIZE,
-      hWalls: new Set(),
-      vWalls: new Set(),
-      player1Pos: { row: BOARD_SIZE - 1, col: center },
-      player2Pos: { row: 0, col: center },
-      player1Walls: INITIAL_WALLS,
-      player2Walls: INITIAL_WALLS,
-      activePlayer: Player.PLAYER1,
-      moveHistory: [],
-      lastMove: null,
-    });
-    setWinner(null);
-    setMessage('Game reset');
-    setNextPawnMoves([]);
-    setNextWallMoves({ h: [], v: [] });
-    setIsGameActive(false);
+    try {
+      // Stop any ongoing game first
+      setIsGameActive(false);
+      setIsThinking(false);
+      
+      // Reset the WASM game state
+      wasmGame.reset_game();
+      
+      // Reset all our React state
+      const center = Math.floor(BOARD_SIZE / 2);
+      setBoardState({
+        size: BOARD_SIZE,
+        hWalls: new Set(),
+        vWalls: new Set(),
+        player1Pos: { row: BOARD_SIZE - 1, col: center },
+        player2Pos: { row: 0, col: center },
+        player1Walls: INITIAL_WALLS,
+        player2Walls: INITIAL_WALLS,
+        activePlayer: Player.PLAYER1,
+        moveHistory: [],
+        lastMove: null,
+      });
+      
+      setWinner(null);
+      setMessage('Game reset');
+      setNextPawnMoves([]);
+      setNextWallMoves({ h: [], v: [] });
+      
+      console.log("Game successfully reset");
+    } catch (error) {
+      console.error("Error resetting game:", error);
+      setMessage(`Error resetting game: ${error.toString()}`);
+    }
   }, [wasmGame]);
 
   // Make AI move
@@ -374,41 +400,57 @@ const QuoridorGameComponent = () => {
     
     setIsThinking(true);
     
-    // Add small delay to simulate thinking
-    await new Promise(resolve => setTimeout(resolve, gameSpeed));
-    
-    // Get AI move from WASM
-    const moveStr = wasmGame.get_ai_move();
-    
-    if (moveStr) {
-      // Check if it's a wall move
-      if (moveStr.length === 3 && (moveStr.endsWith('h') || moveStr.endsWith('v'))) {
-        const orientation = moveStr.charAt(2);
-        const position = fromAlgebraicNotation(moveStr.slice(0, 2));
-        
-        if (position) {
-          placeWall(position.row, position.col, orientation);
-          setMessage(`${currentStrategy} placed a ${orientation === 'h' ? 'horizontal' : 'vertical'} wall at ${moveStr.slice(0, 2)}`);
+    try {
+      // Get AI move from WASM
+      const moveStr = wasmGame.get_ai_move();
+      
+      if (moveStr) {
+        // Check if it's a wall move
+        if (moveStr.length === 3 && (moveStr.endsWith('h') || moveStr.endsWith('v'))) {
+          const orientation = moveStr.charAt(2);
+          const position = fromAlgebraicNotation(moveStr.slice(0, 2));
+          
+          if (position) {
+            const success = placeWall(position.row, position.col, orientation);
+            if (success) {
+              setMessage(`${currentStrategy} placed a ${orientation === 'h' ? 'horizontal' : 'vertical'} wall at ${moveStr.slice(0, 2)}`);
+            } else {
+              console.error("Failed to place wall:", moveStr);
+              setMessage(`Error: Failed to place wall at ${moveStr}`);
+            }
+          }
+        } else {
+          // It's a pawn move
+          const position = fromAlgebraicNotation(moveStr);
+          
+          if (position) {
+            const success = movePawn(position.row, position.col);
+            if (success) {
+              setMessage(`${currentStrategy} moved to ${moveStr}`);
+            } else {
+              console.error("Failed to move pawn:", moveStr);
+              setMessage(`Error: Failed to move pawn to ${moveStr}`);
+            }
+          }
         }
       } else {
-        // It's a pawn move
-        const position = fromAlgebraicNotation(moveStr);
-        
-        if (position) {
-          movePawn(position.row, position.col);
-          setMessage(`${currentStrategy} moved to ${moveStr}`);
-        }
+        console.error("AI returned empty move");
+        setMessage(`${currentStrategy} couldn't find a move`);
       }
-    } else {
-      setMessage(`${currentStrategy} couldn't find a move`);
+    } catch (error) {
+      console.error("Error making AI move:", error);
+      setMessage(`Error with AI move: ${error.toString()}`);
+    } finally {
+      setIsThinking(false);
     }
-    
-    setIsThinking(false);
   }, [
     wasmGame, isGameActive, winner, boardState.activePlayer, 
-    player1Strategy, player2Strategy, gameSpeed, 
+    player1Strategy, player2Strategy, 
     fromAlgebraicNotation, placeWall, movePawn
   ]);
+
+  // Fixed AI move speed (500ms between moves)
+  const AI_MOVE_SPEED = 500; // milliseconds between AI moves
 
   // Run AI moves automatically
   useEffect(() => {
@@ -420,7 +462,7 @@ const QuoridorGameComponent = () => {
       if (currentStrategy !== 'Human' || gameMode === 'watch') {
         const timerId = setTimeout(() => {
           makeAiMove();
-        }, 100);
+        }, AI_MOVE_SPEED);
         
         return () => clearTimeout(timerId);
       }
@@ -438,25 +480,46 @@ const QuoridorGameComponent = () => {
       return;
     }
     
-    resetGame();
-    
-    // Set strategies in the WASM game
-    if (player1Strategy !== 'Human') {
-      wasmGame.set_strategy(1, player1Strategy, selectedOpening);
-    }
-    
-    if (player2Strategy !== 'Human') {
-      wasmGame.set_strategy(2, player2Strategy, selectedOpening);
-    }
-    
-    setIsGameActive(true);
-    updateBoardStateFromWasm();
-    
-    // Set message
-    if (selectedOpening !== 'No Opening') {
-      setMessage(`Started new game with ${selectedOpening} opening`);
-    } else {
-      setMessage('Started new game');
+    try {
+      // First ensure we have a clean game state
+      resetGame();
+      
+      // Wait a brief moment to ensure reset is complete
+      setTimeout(() => {
+        try {
+          // Set strategies in the WASM game - only set for AI players
+          // Don't attempt to set a strategy for Human players
+          if (player1Strategy !== 'Human') {
+            const strategy1Set = wasmGame.set_strategy(1, player1Strategy, selectedOpening);
+            if (!strategy1Set) {
+              console.error("Failed to set strategy for player 1");
+            }
+          }
+          
+          if (player2Strategy !== 'Human') {
+            const strategy2Set = wasmGame.set_strategy(2, player2Strategy, selectedOpening);
+            if (!strategy2Set) {
+              console.error("Failed to set strategy for player 2");
+            }
+          }
+          
+          setIsGameActive(true);
+          updateBoardStateFromWasm();
+          
+          // Set message
+          if (selectedOpening !== 'No Opening') {
+            setMessage(`Started new game with ${selectedOpening} opening`);
+          } else {
+            setMessage('Started new game');
+          }
+        } catch (error) {
+          console.error("Error starting game:", error);
+          setMessage(`Error starting game: ${error.toString()}`);
+        }
+      }, 100);
+    } catch (error) {
+      console.error("Error in resetGame:", error);
+      setMessage(`Error resetting game: ${error.toString()}`);
     }
   }, [
     wasmGame, resetGame, player1Strategy, 
@@ -571,20 +634,6 @@ const QuoridorGameComponent = () => {
           </select>
         </div>
         
-        <div className="flex flex-col">
-          <label className="text-sm font-medium">Game Speed (ms)</label>
-          <input 
-            type="number" 
-            className="border rounded px-2 py-1"
-            value={gameSpeed}
-            onChange={(e) => setGameSpeed(parseInt(e.target.value))}
-            min="100"
-            max="5000"
-            step="100"
-            disabled={!wasmGame}
-          />
-        </div>
-        
         <div className="flex items-end">
           <button 
             className={`px-4 py-1 rounded ${isGameActive ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}
@@ -596,89 +645,97 @@ const QuoridorGameComponent = () => {
         </div>
       </div>
       
-      {/* Wall placement type selector (only shown for human players) */}
-      {isGameActive && wasmGame &&
-       ((boardState.activePlayer === Player.PLAYER1 && player1Strategy === 'Human') ||
-        (boardState.activePlayer === Player.PLAYER2 && player2Strategy === 'Human')) && (
-        <div className="mb-4 flex gap-4">
-          <div className="flex items-center">
-            <label className="mr-2">Wall Type:</label>
-            <select
-              className="border rounded px-2 py-1"
-              value={selectedWallType}
-              onChange={(e) => setSelectedWallType(e.target.value)}
-            >
-              <option value="h">Horizontal</option>
-              <option value="v">Vertical</option>
-            </select>
-          </div>
+      {/* Main game container with fixed height for status area */}
+      <div className="w-full max-w-4xl flex flex-col">
+        {/* Status area with fixed height to prevent shifting */}
+        <div className="h-16 mb-2">
+          {/* Wall placement type selector (only shown for human players) */}
+          {isGameActive && wasmGame &&
+          ((boardState.activePlayer === Player.PLAYER1 && player1Strategy === 'Human') ||
+            (boardState.activePlayer === Player.PLAYER2 && player2Strategy === 'Human')) ? (
+            <div className="flex gap-4">
+              <div className="flex items-center">
+                <label className="mr-2">Wall Type:</label>
+                <select
+                  className="border rounded px-2 py-1"
+                  value={selectedWallType}
+                  onChange={(e) => setSelectedWallType(e.target.value)}
+                >
+                  <option value="h">Horizontal</option>
+                  <option value="v">Vertical</option>
+                </select>
+              </div>
+              
+              <div className="flex items-center">
+                <span className="px-2 py-1 bg-gray-100 rounded">
+                  Walls Left: {boardState.activePlayer === Player.PLAYER1 ? boardState.player1Walls : boardState.player2Walls}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="h-8"> </div> // Empty space placeholder when wall controls aren't shown
+          )}
           
-          <div className="flex items-center">
-            <span className="px-2 py-1 bg-gray-100 rounded">
-              Walls Left: {boardState.activePlayer === Player.PLAYER1 ? boardState.player1Walls : boardState.player2Walls}
-            </span>
+          {/* Game status message */}
+          <div className="flex items-center h-8">
+            {message && <div className="text-gray-700">{message}</div>}
+            
+            {/* Thinking indicator */}
+            {isThinking && (
+              <div className="text-gray-700 flex items-center">
+                <AlertCircle size={16} className="mr-2" />
+                AI is thinking...
+              </div>
+            )}
           </div>
         </div>
-      )}
-      
-      {/* Game status message */}
-      {message && (
-        <div className="mb-4 text-gray-700">{message}</div>
-      )}
-      
-      {/* Thinking indicator */}
-      {isThinking && (
-        <div className="mb-4 text-gray-700 flex items-center">
-          <AlertCircle size={16} className="mr-2" />
-          AI is thinking...
-        </div>
-      )}
-      
-      {/* Game container */}
-      <div className="flex">
-        {/* Game board */}
-        <QuoridorBoard
-          boardState={boardState}
-          onCellClick={handleCellClick}
-          onWallClick={handleWallClick}
-          nextPawnMoves={nextPawnMoves}
-          nextWallMoves={nextWallMoves}
-          selectedWallType={selectedWallType}
-          player1Strategy={player1Strategy}
-          player2Strategy={player2Strategy}
-        />
         
-        {/* Game info panel */}
-        <div className="ml-6 w-64">
-          <div>
-            <h3 className="font-bold mb-2">Current Turn</h3>
-            <div className={`flex items-center mb-4 ${boardState.activePlayer === Player.PLAYER1 ? 'text-blue-500' : 'text-red-500'}`}>
-              <div className={`h-4 w-4 rounded-full ${boardState.activePlayer === Player.PLAYER1 ? 'bg-blue-500' : 'bg-red-500'} mr-2`}></div>
-              <span>{boardState.activePlayer === Player.PLAYER1 ? 'Player 1' : 'Player 2'}</span>
-              <span className="ml-2">
-                ({boardState.activePlayer === Player.PLAYER1 ? player1Strategy : player2Strategy})
-              </span>
-            </div>
-          </div>
+        {/* Game board and info panel */}
+        <div className="flex">
+          {/* Game board */}
+          <QuoridorBoard
+            boardState={boardState}
+            onCellClick={handleCellClick}
+            onWallClick={handleWallClick}
+            nextPawnMoves={nextPawnMoves}
+            nextWallMoves={nextWallMoves}
+            selectedWallType={selectedWallType}
+            player1Strategy={player1Strategy}
+            player2Strategy={player2Strategy}
+          />
           
-          <div>
-            <h3 className="font-bold mb-2">Walls Remaining</h3>
-            <div className="flex justify-between mb-4">
-              <div className="flex items-center">
-                <div className="h-4 w-4 rounded-full bg-blue-500 mr-2"></div>
-                <span>Player 1: {boardState.player1Walls}</span>
-              </div>
-              <div className="flex items-center">
-                <div className="h-4 w-4 rounded-full bg-red-500 mr-2"></div>
-                <span>Player 2: {boardState.player2Walls}</span>
+          {/* Game info panel */}
+          <div className="ml-6 w-64">
+            <div>
+              <h3 className="font-bold mb-2">Current Turn</h3>
+              <div className={`flex items-center mb-4 ${boardState.activePlayer === Player.PLAYER1 ? 'text-blue-500' : 'text-red-500'}`}>
+                <div className={`h-4 w-4 rounded-full ${boardState.activePlayer === Player.PLAYER1 ? 'bg-blue-500' : 'bg-red-500'} mr-2`}></div>
+                <span>{boardState.activePlayer === Player.PLAYER1 ? 'Player 1' : 'Player 2'}</span>
+                <span className="ml-2">
+                  ({boardState.activePlayer === Player.PLAYER1 ? player1Strategy : player2Strategy})
+                </span>
               </div>
             </div>
-          </div>
-          
-          <div>
-            <h3 className="font-bold mb-2">Move History</h3>
-            <div className="border p-2 h-64 overflow-y-auto">
-              {renderMoveHistory()}
+            
+            <div>
+              <h3 className="font-bold mb-2">Walls Remaining</h3>
+              <div className="flex justify-between mb-4">
+                <div className="flex items-center">
+                  <div className="h-4 w-4 rounded-full bg-blue-500 mr-2"></div>
+                  <span>Player 1: {boardState.player1Walls}</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="h-4 w-4 rounded-full bg-red-500 mr-2"></div>
+                  <span>Player 2: {boardState.player2Walls}</span>
+                </div>
+              </div>
+            </div>
+            
+            <div>
+              <h3 className="font-bold mb-2">Move History</h3>
+              <div className="border p-2 h-64 overflow-y-auto">
+                {renderMoveHistory()}
+              </div>
             </div>
           </div>
         </div>
