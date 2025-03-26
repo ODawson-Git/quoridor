@@ -25,7 +25,7 @@ const QuoridorBoard = ({
     return `${colLetter}${rowNumber}`;
   };
   
-  // Get wall color based on player
+  // Simplified - get wall color based on active player only
   const getWallColor = (player) => {
     if (player === 'player1') return 'bg-blue-600';
     if (player === 'player2') return 'bg-red-600';
@@ -226,13 +226,6 @@ const QuoridorBoard = ({
           })
         ))}
       </div>
-      
-      {/* Debug overlay to show human player to hover between squares for wall placement */}
-      {canCurrentPlayerMove && (
-        <div className="absolute bottom-2 right-2 bg-white bg-opacity-75 px-2 py-1 rounded text-xs">
-          Hover between squares to place walls
-        </div>
-      )}
     </div>
   );
 };

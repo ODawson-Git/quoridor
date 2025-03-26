@@ -157,17 +157,10 @@ const QuoridorGameComponent = () => {
         legalPawnMovesStr.forEach(moveStr => {
           const coord = fromAlgebraicNotation(moveStr);
           if (coord) {
-            // FIX: Ensure the move isn't the current position of the pawn
-            const currentPos = boardState.activePlayer === Player.PLAYER1 
-              ? boardState.player1Pos 
-              : boardState.player2Pos;
-              
-            if (coord.row !== currentPos.row || coord.col !== currentPos.col) {
-              legalMoves.push(coord);
-              console.log(`Added legal move: ${moveStr} → [${coord.row},${coord.col}]`);
-            } else {
-              console.log(`Skipped current position as legal move: ${moveStr}`);
-            }
+            // FIX: Don't exclude any coordinates from the legal moves
+            // This fixes the e1 tile selection issue
+            legalMoves.push(coord);
+            console.log(`Added legal move: ${moveStr} → [${coord.row},${coord.col}]`);
           } else {
             console.warn(`Failed to convert move ${moveStr} to coordinates`);
           }
@@ -1007,65 +1000,6 @@ const QuoridorGameComponent = () => {
           >
             {isGameActive ? 'Reset Game' : 'Start Game'}
           </button>
-          
-          {/* Debug button with inline handler */}
-          {isGameActive && (
-            <button 
-              className="px-4 py-1 rounded bg-yellow-500 text-white"
-              onClick={() => {
-                console.log("DEBUG: Manually forcing legal moves update");
-                
-                // Get current player position
-                const currentPos = boardState.activePlayer === Player.PLAYER1 
-                  ? boardState.player1Pos
-                  : boardState.player2Pos;
-                
-                // Generate moves in all four directions if possible
-                const moves = [];
-                
-                // Up (if not at top)
-                if (currentPos.row > 0) {
-                  moves.push({row: currentPos.row - 1, col: currentPos.col});
-                }
-                
-                // Down (if not at bottom)
-                if (currentPos.row < BOARD_SIZE - 1) {
-                  moves.push({row: currentPos.row + 1, col: currentPos.col});
-                }
-                
-                // Left (if not at leftmost)
-                if (currentPos.col > 0) {
-                  moves.push({row: currentPos.row, col: currentPos.col - 1});
-                }
-                
-                // Right (if not at rightmost)
-                if (currentPos.col < BOARD_SIZE - 1) {
-                  moves.push({row: currentPos.row, col: currentPos.col + 1});
-                }
-                
-                console.log("Setting DEBUG legal moves:", moves);
-                setNextPawnMoves(moves);
-                
-                // Also set some debug wall placements
-                const hWalls = [];
-                const vWalls = [];
-                
-                // Add a few wall placements in the middle of the board
-                for (let i = 2; i < 7; i++) {
-                  hWalls.push({row: 4, col: i});
-                  vWalls.push({row: i, col: 4});
-                }
-                
-                console.log("Setting DEBUG wall moves:", {h: hWalls, v: vWalls});
-                setNextWallMoves({h: hWalls, v: vWalls});
-                
-                setMessage("DEBUG: Manually updated legal moves");
-              }}
-              disabled={!wasmLoaded || isThinking}
-            >
-              Show Moves
-            </button>
-          )}
         </div>
       </div>
       
@@ -1083,22 +1017,6 @@ const QuoridorGameComponent = () => {
             </div>
           )}
         </div>
-        
-        {/* Wall information for current player */}
-        {isGameActive && wasmLoaded &&
-        ((boardState.activePlayer === Player.PLAYER1 && player1Strategy === 'Human') ||
-          (boardState.activePlayer === Player.PLAYER2 && player2Strategy === 'Human')) && (
-          <div className="flex items-center mt-2">
-            <div className={`px-3 py-1 rounded-md ${boardState.activePlayer === Player.PLAYER1 ? 'bg-blue-100' : 'bg-red-100'}`}>
-              <span className="font-medium">Walls remaining: </span>
-              <span>{boardState.activePlayer === Player.PLAYER1 ? boardState.player1Walls : boardState.player2Walls}</span>
-            </div>
-            
-            <div className="ml-4 text-sm text-gray-600">
-              Hover between squares to place walls or click on highlighted squares to move
-            </div>
-          </div>
-        )}
       </div>
       
       {/* Game board and info panel */}
