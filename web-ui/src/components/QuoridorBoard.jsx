@@ -46,6 +46,16 @@ const QuoridorBoard = ({
   
   // Check if a cell is a legal move
   const isLegalMove = (row, col) => {
+    // Get current player position
+    const currentPos = boardState.activePlayer === 'player1' 
+      ? boardState.player1Pos 
+      : boardState.player2Pos;
+    
+    // Skip the current player's position as a legal move
+    if (row === currentPos.row && col === currentPos.col) {
+      return false;
+    }
+    
     return nextPawnMoves.some(move => 
       move.row === row && move.col === col
     );
@@ -56,6 +66,11 @@ const QuoridorBoard = ({
     return nextWallMoves[type].some(wall => 
       wall.row === row && wall.col === col
     );
+  };
+
+  // Get ghost wall color based on current player
+  const getGhostWallColor = () => {
+    return boardState.activePlayer === 'player1' ? 'bg-blue-300 bg-opacity-60' : 'bg-red-300 bg-opacity-60';
   };
 
   return (
@@ -142,7 +157,7 @@ const QuoridorBoard = ({
                       absolute top-1/2 left-0 w-full h-4 -translate-y-1/2 shadow-md
                       ${wallExists 
                         ? getWallColor(getWallPlayer('h', wallRow, wallCol)) 
-                        : 'bg-blue-300 bg-opacity-60'}
+                        : getGhostWallColor()}
                     `}
                     style={{ borderRadius: '2px' }}
                   />
@@ -157,9 +172,9 @@ const QuoridorBoard = ({
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
         {Array(8).fill(0).map((_, row) => (
           Array(8).fill(0).map((_, col) => {
-            // For vertical walls, the reference point is the cell to the left of the wall
-            const wallRow = row;
-            const wallCol = col + 1;
+            // For vertical walls, the reference point is the cell to the right of the wall
+            const wallRow = row + 1;
+            const wallCol = col;
             const wallCoord = `${wallRow},${wallCol}`;
             const wallExists = boardState.vWalls.has(wallCoord);
             const wallIsLegal = isLegalWall(wallRow, wallCol, 'v');
@@ -201,7 +216,7 @@ const QuoridorBoard = ({
                       absolute top-0 left-1/2 h-full w-4 -translate-x-1/2 shadow-md
                       ${wallExists 
                         ? getWallColor(getWallPlayer('v', wallRow, wallCol)) 
-                        : 'bg-red-300 bg-opacity-60'}
+                        : getGhostWallColor()}
                     `}
                     style={{ borderRadius: '2px' }}
                   />

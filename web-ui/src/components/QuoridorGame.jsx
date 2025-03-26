@@ -3,7 +3,7 @@ import { AlertCircle } from 'lucide-react';
 import QuoridorBoard from './QuoridorBoard';
 
 // Import the WebAssembly module - this will be available after we build
-import init, { QuoridorGame as WasmQuoridor, wasm_log } from '../wasm/pkg/quoridor';
+import init, { QuoridorGame as WasmQuoridor } from '../wasm/pkg/quoridor';
 
 const BOARD_SIZE = 9;
 const INITIAL_WALLS = 10;
@@ -157,8 +157,17 @@ const QuoridorGameComponent = () => {
         legalPawnMovesStr.forEach(moveStr => {
           const coord = fromAlgebraicNotation(moveStr);
           if (coord) {
-            legalMoves.push(coord);
-            console.log(`Added legal move: ${moveStr} → [${coord.row},${coord.col}]`);
+            // FIX: Ensure the move isn't the current position of the pawn
+            const currentPos = boardState.activePlayer === Player.PLAYER1 
+              ? boardState.player1Pos 
+              : boardState.player2Pos;
+              
+            if (coord.row !== currentPos.row || coord.col !== currentPos.col) {
+              legalMoves.push(coord);
+              console.log(`Added legal move: ${moveStr} → [${coord.row},${coord.col}]`);
+            } else {
+              console.log(`Skipped current position as legal move: ${moveStr}`);
+            }
           } else {
             console.warn(`Failed to convert move ${moveStr} to coordinates`);
           }
@@ -921,8 +930,6 @@ const QuoridorGameComponent = () => {
     );
   }
 
-  // Final important fix - Log props received by QuoridorBoard
-  // This component should be modified to add some debugging
   return (
     <div className="flex flex-col items-center p-4 h-full">
       <h1 className="text-2xl font-bold mb-4">Quoridor Game</h1>
@@ -1001,7 +1008,7 @@ const QuoridorGameComponent = () => {
             {isGameActive ? 'Reset Game' : 'Start Game'}
           </button>
           
-          {/* New debug button with inline handler */}
+          {/* Debug button with inline handler */}
           {isGameActive && (
             <button 
               className="px-4 py-1 rounded bg-yellow-500 text-white"
@@ -1060,105 +1067,6 @@ const QuoridorGameComponent = () => {
             </button>
           )}
         </div>
-      </div>
-      
-      {/* Status area with fixed height to prevent shifting */}
-      <div className="h-16 mb-2 w-full max-w-4xl">
-        {/* Game status and messages */}
-        <div className="flex items-center h-8">
-          {message && <div className="text-gray-700">{message}</div>}
-          
-          {/* Thinking indicator */}
-          {isThinking && (
-            <div className="text-gray-700 flex items-center">
-              <AlertCircle size={16} className="mr-2" />
-              AI is thinking...
-            </div>
-          )}
-        </div>
-        
-        {/* Wall information for current player */}
-        {isGameActive && wasmLoaded &&
-        ((boardState.activePlayer === Player.PLAYER1 && player1Strategy === 'Human') ||
-          (boardState.activePlayer === Player.PLAYER2 && player2Strategy === 'Human')) && (
-          <div className="flex items-center mt-2">
-            <div className={`px-3 py-1 rounded-md ${boardState.activePlayer === Player.PLAYER1 ? 'bg-blue-100' : 'bg-red-100'}`}>
-              <span className="font-medium">Walls remaining: </span>
-              <span>{boardState.activePlayer === Player.PLAYER1 ? boardState.player1Walls : boardState.player2Walls}</span>
-            </div>
-            
-            <div className="ml-4 text-sm text-gray-600">
-              Hover between squares to place walls or click on highlighted squares to move
-            </div>
-          </div>
-        )}
-      </div>
-      
-      {/* Game board and info panel */}
-      <div className="flex">
-        {/* Game board - No longer using key as it causes duplication */}
-        <QuoridorBoard
-          boardState={boardState}
-          onCellClick={handleCellClick}
-          onWallClick={handleWallClick}
-          nextPawnMoves={nextPawnMoves}
-          nextWallMoves={nextWallMoves}
-          player1Strategy={player1Strategy}
-          player2Strategy={player2Strategy}
-        />
-        
-        {/* Game info panel */}
-        <div className="ml-6 w-64">
-          <div>
-            <h3 className="font-bold mb-2">Current Turn</h3>
-            <div className={`flex items-center mb-4 ${boardState.activePlayer === Player.PLAYER1 ? 'text-blue-500' : 'text-red-500'}`}>
-              <div className={`h-4 w-4 rounded-full ${boardState.activePlayer === Player.PLAYER1 ? 'bg-blue-500' : 'bg-red-500'} mr-2`}></div>
-              <span>{boardState.activePlayer === Player.PLAYER1 ? 'Player 1' : 'Player 2'}</span>
-              <span className="ml-2">
-                ({boardState.activePlayer === Player.PLAYER1 ? player1Strategy : player2Strategy})
-              </span>
-            </div>
-          </div>
-          
-          <div>
-            <h3 className="font-bold mb-2">Walls Remaining</h3>
-            <div className="flex justify-between mb-4">
-              <div className="flex items-center">
-                <div className="h-4 w-4 rounded-full bg-blue-500 mr-2"></div>
-                <span>Player 1: {boardState.player1Walls}</span>
-              </div>
-              <div className="flex items-center">
-                <div className="h-4 w-4 rounded-full bg-red-500 mr-2"></div>
-                <span>Player 2: {boardState.player2Walls}</span>
-              </div>
-            </div>
-          </div>
-          
-          <div>
-            <h3 className="font-bold mb-2">Move History</h3>
-            <div className="border p-2 h-64 overflow-y-auto">
-              {renderMoveHistory()}
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      {/* Game instructions */}
-      <div className="mt-8 text-sm text-gray-600 max-w-2xl">
-        <h3 className="font-bold mb-2">How to Play</h3>
-        <p className="mb-2">
-          <strong>Objective:</strong> Move your pawn to the opposite side of the board before your opponent.
-        </p>
-        <p className="mb-2">
-          <strong>Pawn Movement:</strong> On your turn, move your pawn one square horizontally or vertically.
-        </p>
-        <p className="mb-2">
-          <strong>Wall Placement:</strong> Instead of moving, place a wall to block your opponent's path. Each player has 10 walls.
-          Simply hover between cells and click to place horizontal or vertical walls.
-        </p>
-        <p className="mb-2">
-          <strong>Rules:</strong> You cannot completely block a player's path to the goal. If a player is directly in front of you, you can jump over them.
-        </p>
       </div>
       
       {/* Status area with fixed height to prevent shifting */}
