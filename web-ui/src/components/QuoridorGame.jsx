@@ -3,8 +3,7 @@ import { AlertCircle } from 'lucide-react';
 import QuoridorBoard from './QuoridorBoard';
 
 // Import the WebAssembly module - this will be available after we build
-import init, { QuoridorGame as WasmQuoridor, wasm_log } from '../wasm/quoridor';// Constants
-const BOARD_SIZE = 9;
+import init, { QuoridorGame as WasmQuoridor, wasm_log } from '../wasm/pkg/quoridor';const BOARD_SIZE = 9;
 const INITIAL_WALLS = 10;
 
 // Player enum
