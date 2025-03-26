@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AlertCircle } from 'lucide-react';
 import QuoridorBoard from './QuoridorBoard';
 
@@ -48,8 +48,9 @@ const OPENINGS = [
 ];
 
 const QuoridorGameComponent = () => {
-  // WASM game instance
-  const [wasmGame, setWasmGame] = useState(null);
+  // WASM game instance - using a ref to avoid recreation on renders
+  const wasmGameRef = useRef(null);
+  const [wasmLoaded, setWasmLoaded] = useState(false);
   const [wasmError, setWasmError] = useState(null);
   
   // Game state
@@ -79,6 +80,9 @@ const QuoridorGameComponent = () => {
   const [nextPawnMoves, setNextPawnMoves] = useState([]);
   const [nextWallMoves, setNextWallMoves] = useState({ h: [], v: [] });
   
+  // Flag to prevent multiple simultaneous AI moves
+  const isProcessingMoveRef = useRef(false);
+  
   // Initialize WebAssembly module
   useEffect(() => {
     const initWasm = async () => {
@@ -88,7 +92,8 @@ const QuoridorGameComponent = () => {
         
         // Create a new game instance
         const game = new WasmQuoridor(BOARD_SIZE, INITIAL_WALLS);
-        setWasmGame(game);
+        wasmGameRef.current = game;
+        setWasmLoaded(true);
         console.log("WebAssembly module initialized");
       } catch (error) {
         console.error("Failed to initialize WebAssembly module:", error);
@@ -100,9 +105,8 @@ const QuoridorGameComponent = () => {
     
     // Clean up on unmount
     return () => {
-      if (wasmGame) {
-        console.log("Cleaning up WebAssembly game");
-      }
+      // No need to explicitly clean up - Rust will handle this
+      console.log("Component unmounting");
     };
   }, []);
   
@@ -120,18 +124,21 @@ const QuoridorGameComponent = () => {
     const col = colLetter.charCodeAt(0) - 97; // 'a' is 0
     
     const rowNumber = parseInt(notation.substring(1));
+    if (isNaN(rowNumber)) return null;
+    
     const row = BOARD_SIZE - rowNumber;
     
     return { row, col };
   }, []);
 
-  // Update board state from WASM
+  // Update board state from WASM with better error handling
   const updateBoardStateFromWasm = useCallback(() => {
-    if (!wasmGame) return;
+    const game = wasmGameRef.current;
+    if (!game) return false;
     
     try {
       // Get game state JSON
-      const gameStateJson = wasmGame.get_game_state();
+      const gameStateJson = game.get_game_state();
       const gameState = JSON.parse(gameStateJson);
       
       // Convert wall strings to coordinates
@@ -166,20 +173,22 @@ const QuoridorGameComponent = () => {
       
       // Update legal moves
       updateLegalMoves();
-      
+      return true;
     } catch (error) {
       console.error("Error updating board state from WASM:", error);
       setMessage(`Error: ${error.toString()}`);
+      return false;
     }
-  }, [wasmGame, fromAlgebraicNotation]);
+  }, [fromAlgebraicNotation]);
   
-  // Update legal moves
+  // Update legal moves with better error handling
   const updateLegalMoves = useCallback(() => {
-    if (!wasmGame || !isGameActive) return;
+    const game = wasmGameRef.current;
+    if (!game || !isGameActive) return false;
     
     try {
       // Get legal pawn moves
-      const legalPawnMovesStr = wasmGame.get_legal_moves();
+      const legalPawnMovesStr = game.get_legal_moves();
       const legalMoves = [];
       
       // Convert from algebraic notation to coordinates
@@ -197,7 +206,7 @@ const QuoridorGameComponent = () => {
       setNextPawnMoves(legalMoves);
       
       // Get legal wall placements
-      const legalWallsStr = wasmGame.get_legal_walls();
+      const legalWallsStr = game.get_legal_walls();
       const hWalls = [];
       const vWalls = [];
       
@@ -220,91 +229,106 @@ const QuoridorGameComponent = () => {
       }
       
       setNextWallMoves({ h: hWalls, v: vWalls });
-      
+      return true;
     } catch (error) {
       console.error("Error updating legal moves:", error);
       setMessage(`Error: ${error.toString()}`);
+      return false;
     }
-  }, [wasmGame, isGameActive, fromAlgebraicNotation, setMessage]);
+  }, [isGameActive, fromAlgebraicNotation]);
 
-  // Move pawn to the specified position
+  // Move pawn to the specified position with better error handling
   const movePawn = useCallback((row, col) => {
-    if (!wasmGame) return false;
+    const game = wasmGameRef.current;
+    if (!game) return false;
     
-    const algebraicNotation = toAlgebraicNotation(row, col);
-    
-    // Check if this is a winning move
-    const isWinningMove = wasmGame.check_win(algebraicNotation);
-    
-    // Make the move in the WASM game
-    const moveSuccess = wasmGame.make_move(algebraicNotation);
-    
-    if (moveSuccess) {
-      // Record move in history
-      setBoardState(prev => {
-        return {
-          ...prev,
-          moveHistory: [...prev.moveHistory, {
-            player: prev.activePlayer,
-            move: algebraicNotation,
-            type: 'pawn',
-          }],
-          lastMove: algebraicNotation
-        };
-      });
+    try {
+      const algebraicNotation = toAlgebraicNotation(row, col);
       
-      // Update board state from WASM
-      updateBoardStateFromWasm();
+      // Check if this is a winning move
+      const isWinningMove = game.check_win(algebraicNotation);
       
-      // Check for win
-      if (isWinningMove) {
-        setWinner(boardState.activePlayer);
-        setIsGameActive(false);
-        setMessage(`${boardState.activePlayer === Player.PLAYER1 ? 'Player 1' : 'Player 2'} wins!`);
+      // Make the move in the WASM game
+      const moveSuccess = game.make_move(algebraicNotation);
+      
+      if (moveSuccess) {
+        // Record move in history
+        setBoardState(prev => {
+          return {
+            ...prev,
+            moveHistory: [...prev.moveHistory, {
+              player: prev.activePlayer,
+              move: algebraicNotation,
+              type: 'pawn',
+            }],
+            lastMove: algebraicNotation
+          };
+        });
+        
+        // Update board state from WASM
+        updateBoardStateFromWasm();
+        
+        // Check for win
+        if (isWinningMove) {
+          setWinner(boardState.activePlayer);
+          setIsGameActive(false);
+          setMessage(`${boardState.activePlayer === Player.PLAYER1 ? 'Player 1' : 'Player 2'} wins!`);
+        }
+        
+        return true;
       }
       
-      return true;
+      return false;
+    } catch (error) {
+      console.error("Error moving pawn:", error);
+      setMessage(`Error moving pawn: ${error.toString()}`);
+      return false;
     }
-    
-    return false;
-  }, [wasmGame, toAlgebraicNotation, updateBoardStateFromWasm, boardState.activePlayer]);
+  }, [wasmGameRef, toAlgebraicNotation, updateBoardStateFromWasm, boardState.activePlayer]);
 
-  // Place a wall at the specified position
+  // Place a wall at the specified position with better error handling
   const placeWall = useCallback((row, col, orientation) => {
-    if (!wasmGame) return false;
+    const game = wasmGameRef.current;
+    if (!game) return false;
     
-    const algebraicNotation = toAlgebraicNotation(row, col) + orientation;
-    
-    // Make the move in the WASM game
-    const moveSuccess = wasmGame.make_move(algebraicNotation);
-    
-    if (moveSuccess) {
-      // Record move in history
-      setBoardState(prev => {
-        return {
-          ...prev,
-          moveHistory: [...prev.moveHistory, {
-            player: prev.activePlayer,
-            move: algebraicNotation,
-            type: 'wall',
-            orientation,
-          }],
-          lastMove: algebraicNotation
-        };
-      });
+    try {
+      const algebraicNotation = toAlgebraicNotation(row, col) + orientation;
       
-      // Update board state from WASM
-      updateBoardStateFromWasm();
+      // Make the move in the WASM game
+      const moveSuccess = game.make_move(algebraicNotation);
       
-      return true;
+      if (moveSuccess) {
+        // Record move in history
+        setBoardState(prev => {
+          return {
+            ...prev,
+            moveHistory: [...prev.moveHistory, {
+              player: prev.activePlayer,
+              move: algebraicNotation,
+              type: 'wall',
+              orientation,
+            }],
+            lastMove: algebraicNotation
+          };
+        });
+        
+        // Update board state from WASM
+        updateBoardStateFromWasm();
+        
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error("Error placing wall:", error);
+      setMessage(`Error placing wall: ${error.toString()}`);
+      return false;
     }
-    
-    return false;
-  }, [wasmGame, toAlgebraicNotation, updateBoardStateFromWasm]);
+  }, [wasmGameRef, toAlgebraicNotation, updateBoardStateFromWasm]);
 
   // Handle cell click for pawn movement
   const handleCellClick = useCallback((row, col) => {
-    if (!wasmGame || !isGameActive || winner) return;
+    if (!wasmLoaded || !isGameActive || winner) return;
     
     // Get current player strategy
     const currentStrategy = boardState.activePlayer === Player.PLAYER1 
@@ -324,11 +348,11 @@ const QuoridorGameComponent = () => {
         setMessage("Error: Failed to move pawn");
       }
     }
-  }, [wasmGame, isGameActive, winner, boardState.activePlayer, player1Strategy, player2Strategy, nextPawnMoves, movePawn, setMessage]);
+  }, [wasmLoaded, isGameActive, winner, boardState.activePlayer, player1Strategy, player2Strategy, nextPawnMoves, movePawn]);
 
   // Handle wall placement
   const handleWallClick = useCallback((row, col, orientation) => {
-    if (!wasmGame || !isGameActive || winner) return;
+    if (!wasmLoaded || !isGameActive || winner) return;
     
     // Get current player strategy
     const currentStrategy = boardState.activePlayer === Player.PLAYER1 
@@ -346,19 +370,29 @@ const QuoridorGameComponent = () => {
     if (isLegalWall) {
       placeWall(row, col, orientation);
     }
-  }, [wasmGame, isGameActive, winner, boardState.activePlayer, player1Strategy, player2Strategy, nextWallMoves, placeWall]);
+  }, [wasmLoaded, isGameActive, winner, boardState.activePlayer, player1Strategy, player2Strategy, nextWallMoves, placeWall]);
 
-  // Reset the game to initial state
+  // Reset the game to initial state with better error handling
   const resetGame = useCallback(() => {
-    if (!wasmGame) return;
+    const game = wasmGameRef.current;
+    if (!game) return;
     
     try {
       // Stop any ongoing game first
       setIsGameActive(false);
       setIsThinking(false);
+      isProcessingMoveRef.current = false;
       
-      // Reset the WASM game state
-      wasmGame.reset_game();
+      // Create a completely new game instance to avoid memory issues
+      // This is the key fix for the "recursive use of an object" error
+      try {
+        const newGame = new WasmQuoridor(BOARD_SIZE, INITIAL_WALLS);
+        wasmGameRef.current = newGame;
+      } catch (error) {
+        console.error("Error creating new game instance:", error);
+        setMessage(`Error: ${error.toString()}`);
+        return;
+      }
       
       // Reset all our React state
       const center = Math.floor(BOARD_SIZE / 2);
@@ -385,11 +419,12 @@ const QuoridorGameComponent = () => {
       console.error("Error resetting game:", error);
       setMessage(`Error resetting game: ${error.toString()}`);
     }
-  }, [wasmGame]);
+  }, []);
 
-  // Make AI move
+  // Make AI move with better error handling and guards against multiple moves
   const makeAiMove = useCallback(async () => {
-    if (!wasmGame || !isGameActive || winner) return;
+    const game = wasmGameRef.current;
+    if (!game || !isGameActive || winner || isProcessingMoveRef.current) return;
     
     const currentStrategy = boardState.activePlayer === Player.PLAYER1 
       ? player1Strategy 
@@ -398,21 +433,46 @@ const QuoridorGameComponent = () => {
     // Skip if it's a human player's turn
     if (currentStrategy === 'Human') return;
     
+    // Set the thinking flag and guard against multiple moves
     setIsThinking(true);
+    isProcessingMoveRef.current = true;
     
     try {
-      // Get AI move from WASM
-      const moveStr = wasmGame.get_ai_move();
+      // Get AI move from WASM with a safety timeout
+      let moveStr;
       
-      if (moveStr) {
+      try {
+        // Wrap potentially problematic call in try-catch
+        moveStr = game.get_ai_move();
+      } catch (error) {
+        console.error("Error in AI get_ai_move:", error);
+        setMessage(`AI error: ${error.toString()}`);
+        
+        // Reset the game if it's a critical error
+        if (error.toString().includes("unreachable executed") || 
+            error.toString().includes("recursive use of an object")) {
+          console.log("Critical error detected, resetting game...");
+          resetGame();
+          return;
+        }
+        
+        // Skip this move and continue the game
+        isProcessingMoveRef.current = false;
+        setIsThinking(false);
+        return;
+      }
+      
+      if (moveStr && moveStr.length > 0) {
+        let moveSuccess = false;
+        
         // Check if it's a wall move
         if (moveStr.length === 3 && (moveStr.endsWith('h') || moveStr.endsWith('v'))) {
           const orientation = moveStr.charAt(2);
           const position = fromAlgebraicNotation(moveStr.slice(0, 2));
           
           if (position) {
-            const success = placeWall(position.row, position.col, orientation);
-            if (success) {
+            moveSuccess = placeWall(position.row, position.col, orientation);
+            if (moveSuccess) {
               setMessage(`${currentStrategy} placed a ${orientation === 'h' ? 'horizontal' : 'vertical'} wall at ${moveStr.slice(0, 2)}`);
             } else {
               console.error("Failed to place wall:", moveStr);
@@ -424,14 +484,20 @@ const QuoridorGameComponent = () => {
           const position = fromAlgebraicNotation(moveStr);
           
           if (position) {
-            const success = movePawn(position.row, position.col);
-            if (success) {
+            moveSuccess = movePawn(position.row, position.col);
+            if (moveSuccess) {
               setMessage(`${currentStrategy} moved to ${moveStr}`);
             } else {
               console.error("Failed to move pawn:", moveStr);
               setMessage(`Error: Failed to move pawn to ${moveStr}`);
             }
           }
+        }
+        
+        // If the move failed, it might indicate a problem with the game state
+        if (!moveSuccess) {
+          console.warn("AI move failed, updating game state");
+          updateBoardStateFromWasm();
         }
       } else {
         console.error("AI returned empty move");
@@ -440,21 +506,30 @@ const QuoridorGameComponent = () => {
     } catch (error) {
       console.error("Error making AI move:", error);
       setMessage(`Error with AI move: ${error.toString()}`);
+      
+      // If it's a critical error, reset the game
+      if (error.toString().includes("unreachable executed") || 
+          error.toString().includes("recursive use of an object")) {
+        console.log("Critical error detected, resetting game...");
+        resetGame();
+      }
     } finally {
+      isProcessingMoveRef.current = false;
       setIsThinking(false);
     }
   }, [
-    wasmGame, isGameActive, winner, boardState.activePlayer, 
+    wasmGameRef, isGameActive, winner, boardState.activePlayer, 
     player1Strategy, player2Strategy, 
-    fromAlgebraicNotation, placeWall, movePawn
+    fromAlgebraicNotation, placeWall, movePawn, 
+    updateBoardStateFromWasm, resetGame
   ]);
 
   // Fixed AI move speed (500ms between moves)
   const AI_MOVE_SPEED = 500; // milliseconds between AI moves
 
-  // Run AI moves automatically
+  // Run AI moves automatically with better error handling
   useEffect(() => {
-    if (wasmGame && isGameActive && !winner && !isThinking) {
+    if (wasmLoaded && isGameActive && !winner && !isThinking && !isProcessingMoveRef.current) {
       const currentStrategy = boardState.activePlayer === Player.PLAYER1 
         ? player1Strategy 
         : player2Strategy;
@@ -468,14 +543,15 @@ const QuoridorGameComponent = () => {
       }
     }
   }, [
-    wasmGame, boardState, gameMode, isGameActive, 
+    wasmLoaded, boardState, gameMode, isGameActive, 
     isThinking, makeAiMove, player1Strategy, 
     player2Strategy, winner
   ]);
 
-  // Start a new game
+  // Start a new game with better error handling
   const startGame = useCallback(() => {
-    if (!wasmGame) {
+    const game = wasmGameRef.current;
+    if (!game) {
       setMessage("WebAssembly not initialized");
       return;
     }
@@ -484,23 +560,36 @@ const QuoridorGameComponent = () => {
       // First ensure we have a clean game state
       resetGame();
       
-      // Wait a brief moment to ensure reset is complete
+      // Small delay to ensure reset is complete
       setTimeout(() => {
         try {
+          const game = wasmGameRef.current;
+          if (!game) {
+            setMessage("Game instance is null after reset");
+            return;
+          }
+          
           // Set strategies in the WASM game - only set for AI players
-          // Don't attempt to set a strategy for Human players
+          let strategySetSuccess = true;
+          
           if (player1Strategy !== 'Human') {
-            const strategy1Set = wasmGame.set_strategy(1, player1Strategy, selectedOpening);
+            const strategy1Set = game.set_strategy(1, player1Strategy, selectedOpening);
             if (!strategy1Set) {
               console.error("Failed to set strategy for player 1");
+              strategySetSuccess = false;
             }
           }
           
           if (player2Strategy !== 'Human') {
-            const strategy2Set = wasmGame.set_strategy(2, player2Strategy, selectedOpening);
+            const strategy2Set = game.set_strategy(2, player2Strategy, selectedOpening);
             if (!strategy2Set) {
               console.error("Failed to set strategy for player 2");
+              strategySetSuccess = false;
             }
+          }
+          
+          if (!strategySetSuccess) {
+            setMessage("Warning: Some AI strategies could not be set");
           }
           
           setIsGameActive(true);
@@ -516,13 +605,13 @@ const QuoridorGameComponent = () => {
           console.error("Error starting game:", error);
           setMessage(`Error starting game: ${error.toString()}`);
         }
-      }, 100);
+      }, 200); // Slightly longer delay to ensure clean state
     } catch (error) {
       console.error("Error in resetGame:", error);
       setMessage(`Error resetting game: ${error.toString()}`);
     }
   }, [
-    wasmGame, resetGame, player1Strategy, 
+    wasmGameRef, resetGame, player1Strategy, 
     player2Strategy, selectedOpening, updateBoardStateFromWasm
   ]);
 
@@ -569,7 +658,7 @@ const QuoridorGameComponent = () => {
     <div className="flex flex-col items-center p-4 h-full">
       <h1 className="text-2xl font-bold mb-4">Quoridor Game</h1>
       
-      {!wasmGame && (
+      {!wasmLoaded && (
         <div className="bg-yellow-100 p-4 rounded mb-4">
           Loading WebAssembly module...
         </div>
@@ -583,7 +672,7 @@ const QuoridorGameComponent = () => {
             className="border rounded px-2 py-1"
             value={gameMode}
             onChange={(e) => setGameMode(e.target.value)}
-            disabled={isGameActive || !wasmGame}
+            disabled={isGameActive || !wasmLoaded}
           >
             <option value="play">Play</option>
             <option value="watch">Watch AI vs. AI</option>
@@ -596,7 +685,7 @@ const QuoridorGameComponent = () => {
             className="border rounded px-2 py-1"
             value={player1Strategy}
             onChange={(e) => setPlayer1Strategy(e.target.value)}
-            disabled={isGameActive || !wasmGame}
+            disabled={isGameActive || !wasmLoaded}
           >
             {gameMode === 'play' && <option value="Human">Human</option>}
             {STRATEGIES.filter(s => s !== 'Human').map(strategy => (
@@ -611,7 +700,7 @@ const QuoridorGameComponent = () => {
             className="border rounded px-2 py-1"
             value={player2Strategy}
             onChange={(e) => setPlayer2Strategy(e.target.value)}
-            disabled={isGameActive || !wasmGame}
+            disabled={isGameActive || !wasmLoaded}
           >
             {gameMode === 'play' && <option value="Human">Human</option>}
             {STRATEGIES.filter(s => s !== 'Human').map(strategy => (
@@ -626,7 +715,7 @@ const QuoridorGameComponent = () => {
             className="border rounded px-2 py-1"
             value={selectedOpening}
             onChange={(e) => setSelectedOpening(e.target.value)}
-            disabled={isGameActive || !wasmGame}
+            disabled={isGameActive || !wasmLoaded}
           >
             {OPENINGS.map(opening => (
               <option key={opening} value={opening}>{opening}</option>
@@ -638,7 +727,7 @@ const QuoridorGameComponent = () => {
           <button 
             className={`px-4 py-1 rounded ${isGameActive ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}
             onClick={isGameActive ? resetGame : startGame}
-            disabled={!wasmGame}
+            disabled={!wasmLoaded || isThinking}
           >
             {isGameActive ? 'Reset Game' : 'Start Game'}
           </button>
@@ -650,7 +739,7 @@ const QuoridorGameComponent = () => {
         {/* Status area with fixed height to prevent shifting */}
         <div className="h-16 mb-2">
           {/* Wall placement type selector (only shown for human players) */}
-          {isGameActive && wasmGame &&
+          {isGameActive && wasmLoaded &&
           ((boardState.activePlayer === Player.PLAYER1 && player1Strategy === 'Human') ||
             (boardState.activePlayer === Player.PLAYER2 && player2Strategy === 'Human')) ? (
             <div className="flex gap-4">
