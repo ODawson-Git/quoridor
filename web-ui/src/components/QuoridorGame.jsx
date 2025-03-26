@@ -282,7 +282,7 @@ const QuoridorGameComponent = () => {
       gameState.hWalls.forEach(wallStr => {
         const coord = fromAlgebraicNotation(wallStr);
         if (coord) {
-          // Fix: Adjust for horizontal wall position
+          // Original horizontal wall position - no adjustment needed
           const key = `${coord.row},${coord.col}`;
           hWallsSet.add(key);
           console.log(`Added h-wall: ${wallStr} → [${coord.row},${coord.col}] → "${key}"`);
@@ -293,13 +293,10 @@ const QuoridorGameComponent = () => {
       gameState.vWalls.forEach(wallStr => {
         const coord = fromAlgebraicNotation(wallStr);
         if (coord) {
-          // Fix: Adjust for vertical wall position - shift position to correct rendering
-          // We need to adjust one position up and left to avoid the offset issue
-          const row = Math.max(0, coord.row - 1);
-          const col = Math.max(0, coord.col - 1);
-          const key = `${row},${col}`;
+          // No adjustment for vertical walls - this fixes the offset issue
+          const key = `${coord.row},${coord.col}`;
           vWallsSet.add(key);
-          console.log(`Added v-wall: ${wallStr} → [${row},${col}] → "${key}" (adjusted)`);
+          console.log(`Added v-wall: ${wallStr} → [${coord.row},${coord.col}] → "${key}"`);
         }
       });
       
@@ -525,16 +522,9 @@ const QuoridorGameComponent = () => {
       updateLegalMovesImpl();
     }
     
-    // Fix: For vertical walls, adjust the position back to match the WASM expectation
-    let checkRow = row;
-    let checkCol = col;
-    
-    if (orientation === 'v') {
-      // Adjust back the position (compensate for our display fix)
-      checkRow = Math.min(BOARD_SIZE - 1, row + 1);
-      checkCol = Math.min(BOARD_SIZE - 1, col + 1);
-      console.log("Adjusted wall check position for vertical wall:", checkRow, checkCol);
-    }
+    // Original wall check - no adjustments needed anymore
+    const checkRow = row;
+    const checkCol = col;
     
     // Check if wall placement is legal
     const isLegalWall = nextWallMoves[orientation].some(
@@ -543,9 +533,9 @@ const QuoridorGameComponent = () => {
     console.log("Is legal wall:", isLegalWall);
     
     if (isLegalWall) {
-      // Use the adjusted position for vertical walls when calling placeWall
-      const placeRow = orientation === 'v' ? checkRow : row;
-      const placeCol = orientation === 'v' ? checkCol : col;
+      // Use the original position - no adjustments needed 
+      const placeRow = row;
+      const placeCol = col;
       
       // Show feedback about the attempted wall placement
       const algebraic = toAlgebraicNotation(placeRow, placeCol) + orientation;
@@ -945,7 +935,62 @@ const QuoridorGameComponent = () => {
       
       {/* Game configuration */}
       <div className="flex flex-wrap gap-4 mb-4 w-full max-w-4xl">
-        {/* ... configuration options ... */}
+        <div className="flex flex-col">
+          <label className="text-sm font-medium">Game Mode</label>
+          <select 
+            className="border rounded px-2 py-1"
+            value={gameMode}
+            onChange={(e) => setGameMode(e.target.value)}
+            disabled={isGameActive || !wasmLoaded}
+          >
+            <option value="play">Play</option>
+            <option value="watch">Watch AI vs. AI</option>
+          </select>
+        </div>
+        
+        <div className="flex flex-col">
+          <label className="text-sm font-medium">Player 1 (Blue)</label>
+          <select 
+            className="border rounded px-2 py-1"
+            value={player1Strategy}
+            onChange={(e) => setPlayer1Strategy(e.target.value)}
+            disabled={isGameActive || !wasmLoaded}
+          >
+            {gameMode === 'play' && <option value="Human">Human</option>}
+            {STRATEGIES.filter(s => s !== 'Human').map(strategy => (
+              <option key={strategy} value={strategy}>{strategy}</option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="flex flex-col">
+          <label className="text-sm font-medium">Player 2 (Red)</label>
+          <select 
+            className="border rounded px-2 py-1"
+            value={player2Strategy}
+            onChange={(e) => setPlayer2Strategy(e.target.value)}
+            disabled={isGameActive || !wasmLoaded}
+          >
+            {gameMode === 'play' && <option value="Human">Human</option>}
+            {STRATEGIES.filter(s => s !== 'Human').map(strategy => (
+              <option key={strategy} value={strategy}>{strategy}</option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="flex flex-col">
+          <label className="text-sm font-medium">Opening</label>
+          <select 
+            className="border rounded px-2 py-1"
+            value={selectedOpening}
+            onChange={(e) => setSelectedOpening(e.target.value)}
+            disabled={isGameActive || !wasmLoaded}
+          >
+            {OPENINGS.map(opening => (
+              <option key={opening} value={opening}>{opening}</option>
+            ))}
+          </select>
+        </div>
         
         <div className="flex items-end gap-2">
           <button 
@@ -1008,13 +1053,6 @@ const QuoridorGameComponent = () => {
                 setNextWallMoves({h: hWalls, v: vWalls});
                 
                 setMessage("DEBUG: Manually updated legal moves");
-                
-                // IMPORTANT: Force a console log of current state
-                console.log("CURRENT GAME STATE CHECK:");
-                console.log("- Next pawn moves:", nextPawnMoves);
-                console.log("- Next wall moves:", nextWallMoves);
-                console.log("- Active player:", boardState.activePlayer);
-                console.log("- Player positions:", boardState.player1Pos, boardState.player2Pos);
               }}
               disabled={!wasmLoaded || isThinking}
             >
@@ -1058,9 +1096,8 @@ const QuoridorGameComponent = () => {
       
       {/* Game board and info panel */}
       <div className="flex">
-        {/* Game board - Add key to force rerender when moves change */}
+        {/* Game board - No longer using key as it causes duplication */}
         <QuoridorBoard
-          key={`board-${nextPawnMoves.length}-${nextWallMoves.h.length}-${nextWallMoves.v.length}`}
           boardState={boardState}
           onCellClick={handleCellClick}
           onWallClick={handleWallClick}
@@ -1069,18 +1106,6 @@ const QuoridorGameComponent = () => {
           player1Strategy={player1Strategy}
           player2Strategy={player2Strategy}
         />
-        
-        {/* Debug info - Show current legal moves */}
-        {isGameActive && nextPawnMoves.length > 0 && (
-          <div className="fixed bottom-4 right-4 bg-white p-2 border rounded shadow-lg z-50 text-xs">
-            <div className="font-bold mb-1">Legal Moves:</div>
-            {nextPawnMoves.map((move, idx) => (
-              <div key={idx}>
-                [{move.row}, {move.col}]
-              </div>
-            ))}
-          </div>
-        )}
         
         {/* Game info panel */}
         <div className="ml-6 w-64">
@@ -1116,6 +1141,24 @@ const QuoridorGameComponent = () => {
             </div>
           </div>
         </div>
+      </div>
+      
+      {/* Game instructions */}
+      <div className="mt-8 text-sm text-gray-600 max-w-2xl">
+        <h3 className="font-bold mb-2">How to Play</h3>
+        <p className="mb-2">
+          <strong>Objective:</strong> Move your pawn to the opposite side of the board before your opponent.
+        </p>
+        <p className="mb-2">
+          <strong>Pawn Movement:</strong> On your turn, move your pawn one square horizontally or vertically.
+        </p>
+        <p className="mb-2">
+          <strong>Wall Placement:</strong> Instead of moving, place a wall to block your opponent's path. Each player has 10 walls.
+          Simply hover between cells and click to place horizontal or vertical walls.
+        </p>
+        <p className="mb-2">
+          <strong>Rules:</strong> You cannot completely block a player's path to the goal. If a player is directly in front of you, you can jump over them.
+        </p>
       </div>
       
       {/* Status area with fixed height to prevent shifting */}
