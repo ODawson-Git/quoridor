@@ -789,6 +789,7 @@ const QuoridorGameComponent = () => {
             nextPawnMoves={nextPawnMoves}
             nextWallMoves={nextWallMoves}
             selectedWallType={selectedWallType}
+            setSelectedWallType={setSelectedWallType}
             player1Strategy={player1Strategy}
             player2Strategy={player2Strategy}
           />
