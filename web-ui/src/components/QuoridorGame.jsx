@@ -707,8 +707,7 @@ const QuoridorGameComponent = () => {
     updateBoardStateFromWasm, resetGame
   ]);
 
-  // Fixed AI move speed (500ms between moves)
-  const AI_MOVE_SPEED = 500; // milliseconds between AI moves
+  const AI_MOVE_SPEED = 0; // milliseconds between AI moves
 
   // Run AI moves automatically
   useEffect(() => {
