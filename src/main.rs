@@ -15,6 +15,26 @@ use std::time::{Duration, Instant};
 // Define coordinate type for clarity
 type Coord = (usize, usize);
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+struct WasmSafeInstant {
+    iteration_count: usize,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl WasmSafeInstant {
+    fn now() -> Self {
+        WasmSafeInstant { iteration_count: 0 }
+    }
+    
+    fn elapsed(&mut self) -> usize {
+        self.iteration_count += 1;
+        self.iteration_count
+    }
+}
+
 // Enum for player identification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Player {
@@ -1406,7 +1426,7 @@ impl Strategy for SimulatedAnnealingStrategy {
         
         // Following the paper's approach with nested annealing processes
         // Outer loop = Global annealing
-        let max_iterations = 1000; // Practical upper bound to prevent infinite loops
+        let max_iterations = 120000; // Practical upper bound to prevent infinite loops
         
         for _ in 0..max_iterations {
             time1 += 1;
@@ -1685,14 +1705,16 @@ impl MCTSNode {
     }
 }
 
-// MCTS Strategy implementation
 pub struct MCTSStrategy {
     opening_name: String,
     opening_moves: Vec<String>,
     move_counter: usize,
     simulation_limit: usize,
     exploration_param: f64,
+    #[cfg(not(target_arch = "wasm32"))]
     time_limit: Option<Duration>,
+    #[cfg(target_arch = "wasm32")]
+    time_limit_iterations: Option<usize>,
 }
 
 impl MCTSStrategy {
@@ -1703,20 +1725,38 @@ impl MCTSStrategy {
             move_counter: 0,
             simulation_limit,
             exploration_param: 1.414, // Standard UCT exploration parameter (√2)
+            #[cfg(not(target_arch = "wasm32"))]
             time_limit: None,
+            #[cfg(target_arch = "wasm32")]
+            time_limit_iterations: None,
         }
     }
     
     // Set a time limit for MCTS search
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_time_limit(mut self, seconds: f64) -> Self {
         self.time_limit = Some(Duration::from_secs_f64(seconds));
+        self
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn with_time_limit(mut self, seconds: f64) -> Self {
+        // For WebAssembly, convert seconds to an iteration count
+        // This is just an approximation
+        let iterations = (seconds * 1000.0) as usize;
+        self.time_limit_iterations = Some(iterations);
         self
     }
     
     // Run MCTS algorithm to find the best move
     fn run_mcts(&self, game: &Quoridor) -> String {
         let mut rng = rand::thread_rng();
+        
+        #[cfg(not(target_arch = "wasm32"))]
         let start_time = Instant::now();
+        
+        #[cfg(target_arch = "wasm32")]
+        let mut wasm_counter = WasmSafeInstant::now();
         
         // Get all possible moves from the current state
         let legal_pawn_moves = game.get_legal_moves(game.active_player);
@@ -1744,8 +1784,16 @@ impl MCTSStrategy {
         // Continue until we hit our simulation limit or time limit
         while simulation_count < self.simulation_limit {
             // Check time limit if set
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some(limit) = self.time_limit {
                 if start_time.elapsed() > limit {
+                    break;
+                }
+            }
+            
+            #[cfg(target_arch = "wasm32")]
+            if let Some(limit) = self.time_limit_iterations {
+                if wasm_counter.elapsed() > limit {
                     break;
                 }
             }

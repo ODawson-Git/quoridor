@@ -72,14 +72,27 @@ impl QuoridorGame {
                 Box::new(main::MinimaxStrategy::new(opening_name, opening_moves, depth))
             },
             s if s.starts_with("MCTS") => {
-                // Parse simulation count from strategy name (e.g., MCTS60k -> 60000 simulations)
-                if let Ok(simulations) = s[4..].replace("k", "000").parse::<usize>() {
-                    Box::new(main::MCTSStrategy::new(opening_name, opening_moves, simulations))
+                // For WebAssembly, we need to handle MCTS differently
+                if s.contains("sec") {
+                    // Extract the number before "sec"
+                    let number_part = s.replace("MCTS", "").replace("sec", "");
+                    
+                    // Parse the time in seconds, default to 1.0 if parsing fails
+                    let seconds = number_part.parse::<f64>().unwrap_or(1.0);
+                    
+                    // Convert to simulation count for WebAssembly (approximation)
+                    let simulation_count = (seconds * 10000.0) as usize;
+                    Box::new(main::MCTSStrategy::new(opening_name, opening_moves, simulation_count))
                 } else {
-                    // Default to 10k simulations if parsing fails
-                    Box::new(main::MCTSStrategy::new(opening_name, opening_moves, 10000))
+                    // Parse simulation count from strategy name (e.g., MCTS60k -> 60000 simulations)
+                    if let Ok(simulations) = s[4..].replace("k", "000").parse::<usize>() {
+                        Box::new(main::MCTSStrategy::new(opening_name, opening_moves, simulations))
+                    } else {
+                        // Default to 10k simulations if parsing fails
+                        Box::new(main::MCTSStrategy::new(opening_name, opening_moves, 10000))
+                    }
                 }
-            },
+            },          
             _ => return false,
         };
         
