@@ -24,7 +24,15 @@ const STRATEGIES = [
   'Adaptive',
   'Minimax1',
   'Minimax2',
-  'Mirror'
+  'Mirror',
+  "MCTS60k",
+  "MCTS120k",
+  "MCTS1sec",
+  "MCTS3sec",
+  "SimulatedAnnealing0.5",
+  "SimulatedAnnealing1.0",
+  "SimulatedAnnealing1.5",
+  "SimulatedAnnealing2.0",
 ];
 
 // Opening names

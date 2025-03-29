@@ -10,7 +10,7 @@ use std::cmp::{min, max};
 use std::env;
 use std::thread;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 // Define coordinate type for clarity
 type Coord = (usize, usize);
@@ -952,12 +952,7 @@ impl Strategy for AdaptiveStrategy {
 // Minimax Strategy
 pub struct MinimaxStrategy {
     base: QuoridorStrategy,
-    depth: usize,
-    w_position_diff: f64,
-    w_attacking: f64,
-    w_defensive: f64,
-    w_wall_control: f64,
-    w_mobility: f64,
+    depth: usize
 }
 
 impl MinimaxStrategy {
@@ -1622,7 +1617,6 @@ impl SimulatedAnnealingStrategy {
 
 
 // MCTS Node structure to track game states
-// MCTS Node structure to track game states
 struct MCTSNode {
     move_str: String,               // Move that led to this state
     visits: usize,                  // Number of times this node has been visited
@@ -2100,9 +2094,14 @@ impl Tournament {
                 let depth = s[7..].parse::<usize>().unwrap_or(1);
                 Box::new(MinimaxStrategy::new(opening_name, opening_moves, depth))
             },
-            s if s.starts_with("ProgressiveDeepening") => {
-                let depth = s[20..].parse::<usize>().unwrap_or(3);
-                Box::new(ProgressiveDeepeningStrategy::new(opening_name, opening_moves, depth))
+            s if s.starts_with("MCTS") => {
+                // Parse simulation count from strategy name (e.g., MCTS60k -> 60000 simulations)
+                if let Ok(simulations) = s[4..].replace("k", "000").parse::<usize>() {
+                    Box::new(MCTSStrategy::new(opening_name, opening_moves, simulations))
+                } else {
+                    // Default to 10k simulations if parsing fails
+                    Box::new(MCTSStrategy::new(opening_name, opening_moves, 10000))
+                }
             },
             _ => Box::new(RandomStrategy::new(opening_name, opening_moves)), // Default
         }

@@ -62,9 +62,24 @@ impl QuoridorGame {
             "Defensive" => Box::new(main::DefensiveStrategy::new(opening_name, opening_moves, 0.7)),
             "Balanced" => Box::new(main::BalancedStrategy::new(opening_name, opening_moves, 0.5)),
             "Adaptive" => Box::new(main::AdaptiveStrategy::new(opening_name, opening_moves)),
-            "Minimax1" => Box::new(main::MinimaxStrategy::new(opening_name, opening_moves, 1)),
-            "Minimax2" => Box::new(main::MinimaxStrategy::new(opening_name, opening_moves, 2)),
             "Mirror" => Box::new(main::MirrorStrategy::new(opening_name, opening_moves)),
+            s if s.starts_with("SimulatedAnnealing") => {
+                let factor = s[18..].parse::<f64>().unwrap_or(1.0);
+                Box::new(main::SimulatedAnnealingStrategy::new(opening_name, opening_moves, factor))
+            },
+            s if s.starts_with("Minimax") => {
+                let depth = s[7..].parse::<usize>().unwrap_or(1);
+                Box::new(main::MinimaxStrategy::new(opening_name, opening_moves, depth))
+            },
+            s if s.starts_with("MCTS") => {
+                // Parse simulation count from strategy name (e.g., MCTS60k -> 60000 simulations)
+                if let Ok(simulations) = s[4..].replace("k", "000").parse::<usize>() {
+                    Box::new(main::MCTSStrategy::new(opening_name, opening_moves, simulations))
+                } else {
+                    // Default to 10k simulations if parsing fails
+                    Box::new(main::MCTSStrategy::new(opening_name, opening_moves, 10000))
+                }
+            },
             _ => return false,
         };
         
