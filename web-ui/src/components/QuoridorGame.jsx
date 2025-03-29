@@ -77,6 +77,8 @@ const QuoridorGameComponent = () => {
   const [message, setMessage] = useState('');
   const [nextPawnMoves, setNextPawnMoves] = useState([]);
   const [nextWallMoves, setNextWallMoves] = useState({ h: [], v: [] });
+  // Added AI Move Speed state variable
+  const [aiMoveSpeed, setAiMoveSpeed] = useState(0);
   
   // Flag to prevent multiple simultaneous AI moves
   const isProcessingMoveRef = useRef(false);
@@ -354,6 +356,7 @@ const QuoridorGameComponent = () => {
               player: prev.activePlayer,
               move: algebraicNotation,
               type: 'pawn',
+              isWinningMove: isWinningMove // Add flag for winning move
             }],
             lastMove: algebraicNotation
           };
@@ -364,6 +367,19 @@ const QuoridorGameComponent = () => {
         
         // Check for win
         if (isWinningMove) {
+          // Update move history to flag this as a winning move
+          setBoardState(prev => {
+            const updatedHistory = [...prev.moveHistory];
+            // Mark the last move as a winning move
+            if (updatedHistory.length > 0) {
+              updatedHistory[updatedHistory.length - 1].isWinningMove = true;
+            }
+            return {
+              ...prev,
+              moveHistory: updatedHistory
+            };
+          });
+          
           setWinner(boardState.activePlayer);
           setIsGameActive(false);
           setMessage(`${boardState.activePlayer === Player.PLAYER1 ? 'Player 1' : 'Player 2'} wins!`);
@@ -401,6 +417,7 @@ const QuoridorGameComponent = () => {
               move: algebraicNotation,
               type: 'wall',
               orientation,
+              isWinningMove: false // Initially not a winning move
             }],
             lastMove: algebraicNotation
           };
@@ -707,8 +724,6 @@ const QuoridorGameComponent = () => {
     updateBoardStateFromWasm, resetGame
   ]);
 
-  const AI_MOVE_SPEED = 0; // milliseconds between AI moves
-
   // Run AI moves automatically
   useEffect(() => {
     if (wasmLoaded && isGameActive && !winner && !isThinking && !isProcessingMoveRef.current) {
@@ -719,7 +734,7 @@ const QuoridorGameComponent = () => {
       if (currentStrategy !== 'Human') {
         const timerId = setTimeout(() => {
           makeAiMove();
-        }, AI_MOVE_SPEED);
+        }, isAiVsAiMode() ? aiMoveSpeed : 0);
         
         return () => clearTimeout(timerId);
       } else {
@@ -763,7 +778,8 @@ const QuoridorGameComponent = () => {
   }, [
     wasmLoaded, boardState, isGameActive, 
     isThinking, makeAiMove, player1Strategy, 
-    player2Strategy, winner, nextPawnMoves.length
+    player2Strategy, winner, nextPawnMoves.length,
+    aiMoveSpeed, isAiVsAiMode
   ]);
 
   // Start a new game
@@ -918,12 +934,20 @@ const QuoridorGameComponent = () => {
           {turn.number}.
         </div>
         <div className="w-5/12 text-blue-600">
-          {turn.player1Move ? turn.player1Move.move : ''}
+          {turn.player1Move ? (
+            <span>
+              {turn.player1Move.move}
+              {turn.player1Move.isWinningMove && <span className="font-bold">*</span>}
+            </span>
+          ) : ''}
         </div>
         <div className="w-5/12 text-red-600">
-          {turn.player2Move ? 
-            turn.player2Move.move : 
-            (turn.player1Move ? '...' : '')}
+          {turn.player2Move ? (
+            <span>
+              {turn.player2Move.move}
+              {turn.player2Move.isWinningMove && <span className="font-bold">*</span>}
+            </span>
+          ) : (turn.player1Move ? '...' : '')}
         </div>
       </div>
     ));
@@ -1044,6 +1068,30 @@ const QuoridorGameComponent = () => {
                 {isGameActive ? 'Reset Game' : 'Start Game'}
               </button>
             </div>
+            
+            {/* AI Speed Control - only show in AI vs AI mode */}
+            {isAiVsAiMode() && (
+              <div className="mt-4 bg-purple-50 p-3 rounded-lg border border-purple-200">
+                <label className="text-sm font-medium text-purple-800 block mb-1">
+                  AI Move Speed (ms)
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="2000"
+                  step="100"
+                  className="w-full"
+                  value={aiMoveSpeed}
+                  onChange={(e) => setAiMoveSpeed(parseInt(e.target.value))}
+                  disabled={!wasmLoaded}
+                />
+                <div className="flex justify-between text-xs text-purple-800 mt-1">
+                  <span>Fast</span>
+                  <span>{aiMoveSpeed}ms</span>
+                  <span>Slow</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         
@@ -1052,8 +1100,15 @@ const QuoridorGameComponent = () => {
           {/* Game status and messages */}
           <div className="w-full mb-4 min-h-[40px] flex items-center justify-center">
             {message && (
-              <div className="bg-gray-100 px-4 py-2 rounded-lg text-gray-800 text-center">
+              <div className={`px-4 py-2 rounded-lg text-center ${
+                winner 
+                  ? (winner === Player.PLAYER1 
+                      ? 'bg-blue-100 text-blue-800 font-bold' 
+                      : 'bg-red-100 text-red-800 font-bold')
+                  : 'bg-gray-100 text-gray-800'
+              }`}>
                 {message}
+                {winner && <span className="font-bold">*</span>}
               </div>
             )}
             
