@@ -1622,6 +1622,7 @@ impl SimulatedAnnealingStrategy {
 
 
 // MCTS Node structure to track game states
+// MCTS Node structure to track game states
 struct MCTSNode {
     move_str: String,               // Move that led to this state
     visits: usize,                  // Number of times this node has been visited
@@ -1834,13 +1835,13 @@ impl MCTSStrategy {
                 let node = unsafe { &mut *node_ptr };
                 node.visits += 1;
                 
-                // Add a win if the original player won
+                // From the paper (page 21): "The score added to each winning node is 10."
                 if winner == Some(original_player) {
-                    node.wins += 1.0;
+                    node.wins += 10.0; // Use 10.0 as the win score as specified in the paper
                 }
                 // Add a half-win for draws (if implemented)
                 else if winner.is_none() {
-                    node.wins += 0.5;
+                    node.wins += 5.0; // Half of the win score for draws
                 }
             }
             
@@ -1857,7 +1858,7 @@ impl MCTSStrategy {
         }
     }
     
-    // Simulate a game from the current state to completion using a simple strategy
+    // Simulate a game from the current state to completion using the heuristic described in the paper
     fn simulate_game(&self, game: &mut Quoridor) -> Option<Player> {
         let mut rng = rand::thread_rng();
         let mut move_count = 0;
@@ -1879,47 +1880,76 @@ impl MCTSStrategy {
                 return Some(Player::Player2);
             }
             
-            // Choose between pawn move or wall placement using heuristic
+            // Use the heuristic described in the paper (page 23)
             let current_player = game.active_player;
             let opponent = current_player.opponent();
             
-            // Calculate path distances
+            // Calculate shortest path distances
             let player_distance = game.distance_to_goal(current_player);
             let opponent_distance = game.distance_to_goal(opponent);
             
-            // Use a heuristic to decide between pawn move and wall placement
-            let mut available_moves = Vec::new();
-            
-            // Prefer pawn moves when ahead or out of walls
+            // Following the paper's heuristic:
+            // "The heuristic decision used in the simulation phase is basically
+            // based on comparing if the shortest path until the goal of the current player
+            // is less than the opponent's one."
             if player_distance <= opponent_distance || game.walls_available[&current_player] == 0 {
-                // Get legal pawn moves
+                // Follow shortest path - pawn movement only
                 let pawn_moves = game.get_legal_moves(current_player);
-                if !pawn_moves.is_empty() {
-                    available_moves.extend(pawn_moves);
+                
+                if pawn_moves.is_empty() {
+                    return None; // No moves available
                 }
+                
+                // Try to choose a move that reduces distance to goal
+                let mut best_moves = Vec::new();
+                let mut best_distance = player_distance;
+                
+                for move_str in &pawn_moves {
+                    let mut temp_game = game.clone();
+                    temp_game.move_pawn(move_str, true);
+                    let new_distance = temp_game.distance_to_goal(current_player);
+                    
+                    if new_distance < best_distance {
+                        best_moves.clear();
+                        best_moves.push(move_str);
+                        best_distance = new_distance;
+                    } else if new_distance == best_distance {
+                        best_moves.push(move_str);
+                    }
+                }
+                
+                // If no good move found, use any legal pawn move
+                if best_moves.is_empty() {
+                    best_moves = pawn_moves.iter().collect();
+                }
+                
+                // Choose randomly from best moves
+                let move_idx = rng.gen_range(0..best_moves.len());
+                let selected_move = best_moves[move_idx];
+                game.move_pawn(selected_move, true);
             } else {
-                // Get all possible moves
+                // Consider all possible moves (including walls)
                 let pawn_moves = game.get_legal_moves(current_player);
                 let wall_moves = game.get_legal_walls(current_player);
                 
-                available_moves.extend(pawn_moves);
-                available_moves.extend(wall_moves);
-            }
-            
-            // If no moves available, it's a draw
-            if available_moves.is_empty() {
-                return None;
-            }
-            
-            // Select a random move
-            let move_idx = rng.gen_range(0..available_moves.len());
-            let selected_move = &available_moves[move_idx];
-            
-            // Apply the move
-            if selected_move.len() == 3 && (selected_move.ends_with('h') || selected_move.ends_with('v')) {
-                game.add_wall(selected_move, false, true);
-            } else {
-                game.move_pawn(selected_move, true);
+                let mut all_moves = Vec::new();
+                all_moves.extend(pawn_moves);
+                all_moves.extend(wall_moves);
+                
+                if all_moves.is_empty() {
+                    return None; // No moves available
+                }
+                
+                // Choose a random move from all possible moves
+                let move_idx = rng.gen_range(0..all_moves.len());
+                let selected_move = &all_moves[move_idx];
+                
+                // Apply the move
+                if selected_move.len() == 3 && (selected_move.ends_with('h') || selected_move.ends_with('v')) {
+                    game.add_wall(selected_move, false, true);
+                } else {
+                    game.move_pawn(selected_move, true);
+                }
             }
             
             move_count += 1;
