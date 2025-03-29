@@ -10,13 +10,13 @@ use std::cmp::{min, max};
 use std::env;
 use std::thread;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration};
 
 // Define coordinate type for clarity
 type Coord = (usize, usize);
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::time::{Duration, Instant};
+use std::time::{Instant};
 
 #[cfg(target_arch = "wasm32")]
 struct WasmSafeInstant {
@@ -2387,15 +2387,19 @@ impl Tournament {
         println!("Starting tournament with parallel execution...");
         
         let strategy_names = vec![
-            "Adaptive", 
-            "Minimax2",
-            "Minimax3",
+            'Random',
+            'ShortestPath',
+            'Defensive',
+            'Balanced',
+            'Adaptive',
+            'Minimax1',
+            'Minimax2',
+            "Mirror",
             "SimulatedAnnealing0.5",
             "SimulatedAnnealing1.0",
-            "SimulatedAnnealing1.5",
-            "SimulatedAnnealing2.0",
-            "ProgressiveDeepening2",
-            "ProgressiveDeepening3"
+            "SimulatedAnnealing2",
+            "MCTS1sec",
+            "MCTS3sec",
         ];
         
         let opening_names = vec![
