@@ -27,9 +27,9 @@ const QuoridorBoard = ({
   
   // Get wall color based on wall position and move history
   const getWallColor = (player) => {
-    if (player === 'player1') return 'bg-blue-600';
-    if (player === 'player2') return 'bg-red-600';
-    return 'bg-gray-700';
+    if (player === 'player1') return 'bg-blue-500';
+    if (player === 'player2') return 'bg-red-500';
+    return 'bg-gray-600';
   };
   
   // Find which player placed a specific wall - improved version
@@ -82,11 +82,34 @@ const QuoridorBoard = ({
 
   // Get ghost wall color based on current player
   const getGhostWallColor = () => {
-    return boardState.activePlayer === 'player1' ? 'bg-blue-300 bg-opacity-60' : 'bg-red-300 bg-opacity-60';
+    return boardState.activePlayer === 'player1' ? 'bg-blue-400 bg-opacity-60' : 'bg-red-400 bg-opacity-60';
+  };
+
+  // Determine if a cell is in the target row (goal line)
+  const isTargetRow = (row, col) => {
+    // Player 1 (blue) target is row 0 (top row)
+    // Player 2 (red) target is row 8 (bottom row)
+    return row === 0 || row === 8;
+  };
+
+  // Get cell background color considering checkerboard pattern and highlighting
+  const getCellBackgroundColor = (row, col) => {
+    // Target row highlighting
+    if (row === 0) return 'bg-red-100'; // Player 2's target (top row)
+    if (row === 8) return 'bg-blue-100'; // Player 1's target (bottom row)
+    
+    // Checkerboard pattern for the rest of the board
+    return (row + col) % 2 === 0 ? 'bg-gray-50' : 'bg-white';
   };
 
   return (
-    <div className="relative w-[540px] h-[540px] bg-gray-50 border border-gray-300 rounded-lg shadow-md overflow-hidden">
+    <div className="relative w-[540px] h-[540px] bg-white border border-gray-300 rounded-lg shadow-xl overflow-hidden">
+      {/* Top target line (Player 1's goal) */}
+      <div className="absolute top-0 left-0 w-full h-1.5 bg-red-500 z-20"></div>
+      
+      {/* Bottom target line (Player 2's goal) */}
+      <div className="absolute bottom-0 left-0 w-full h-1.5 bg-blue-500 z-20"></div>
+      
       {/* Main grid - cells */}
       <div className="grid grid-cols-9 grid-rows-9 w-full h-full">
         {Array(9).fill(0).map((_, row) => (
@@ -94,14 +117,21 @@ const QuoridorBoard = ({
             const isPlayer1 = boardState.player1Pos.row === row && boardState.player1Pos.col === col;
             const isPlayer2 = boardState.player2Pos.row === row && boardState.player2Pos.col === col;
             const cellIsLegalMove = isLegalMove(row, col);
+            const cellNotation = toAlgebraicNotation(row, col);
+            
+            // Determine if this cell is on the edge (for styling)
+            const isEdgeCell = row === 0 || row === 8 || col === 0 || col === 8;
             
             return (
               <div 
                 key={`cell-${row}-${col}`} 
                 className={`
-                  relative flex items-center justify-center border border-gray-200
-                  ${cellIsLegalMove && canCurrentPlayerMove ? 'bg-green-100 cursor-pointer hover:bg-green-200' : 'bg-white'}
-                  ${isPlayer1 || isPlayer2 ? 'bg-gray-100' : ''}
+                  relative flex items-center justify-center
+                  ${getCellBackgroundColor(row, col)}
+                  ${cellIsLegalMove && canCurrentPlayerMove ? 'bg-green-100 cursor-pointer hover:bg-green-200' : ''}
+                  ${isPlayer1 || isPlayer2 ? 'bg-gray-200' : ''}
+                  ${isEdgeCell ? 'border border-gray-300' : 'border border-gray-200'}
+                  transition-colors duration-150
                 `}
                 onClick={() => {
                   if (canCurrentPlayerMove && cellIsLegalMove) {
@@ -109,12 +139,25 @@ const QuoridorBoard = ({
                   }
                 }}
               >
-                {isPlayer1 && <div className="h-10 w-10 rounded-full bg-blue-500 z-10 shadow-md" />}
-                {isPlayer2 && <div className="h-10 w-10 rounded-full bg-red-500 z-10 shadow-md" />}
+                {isPlayer1 && (
+                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 z-10 shadow-lg border-2 border-blue-300 flex items-center justify-center text-white font-bold">
+                    1
+                  </div>
+                )}
+                {isPlayer2 && (
+                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-red-400 to-red-600 z-10 shadow-lg border-2 border-red-300 flex items-center justify-center text-white font-bold">
+                    2
+                  </div>
+                )}
                 
-                <div className="absolute text-xs text-gray-400 left-1 top-1 pointer-events-none">
-                  {toAlgebraicNotation(row, col)}
+                <div className="absolute text-xs text-gray-500 left-1 top-1 pointer-events-none">
+                  {cellNotation}
                 </div>
+                
+                {/* Visual indicator for legal moves */}
+                {cellIsLegalMove && canCurrentPlayerMove && !isPlayer1 && !isPlayer2 && (
+                  <div className={`h-3 w-3 rounded-full ${boardState.activePlayer === 'player1' ? 'bg-blue-500' : 'bg-red-500'} opacity-70`}></div>
+                )}
               </div>
             );
           })
@@ -142,6 +185,7 @@ const QuoridorBoard = ({
                 className={`
                   absolute pointer-events-auto z-10
                   ${wallIsLegal && canCurrentPlayerMove ? 'cursor-pointer' : ''}
+                  ${wallIsLegal && canCurrentPlayerMove && !wallExists && !showGhost ? 'hover:bg-gray-200 hover:bg-opacity-50 rounded-full' : ''}
                 `}
                 style={{
                   top: `${(row + 1) * (100 / 9)}%`,
@@ -170,8 +214,8 @@ const QuoridorBoard = ({
                       ${wallExists 
                         ? getWallColor(getWallPlayer('h', wallRow, wallCol)) 
                         : getGhostWallColor()}
+                      rounded-full
                     `}
-                    style={{ borderRadius: '2px' }}
                   />
                 )}
               </div>
@@ -201,6 +245,7 @@ const QuoridorBoard = ({
                 className={`
                   absolute pointer-events-auto z-10
                   ${wallIsLegal && canCurrentPlayerMove ? 'cursor-pointer' : ''}
+                  ${wallIsLegal && canCurrentPlayerMove && !wallExists && !showGhost ? 'hover:bg-gray-200 hover:bg-opacity-50 rounded-full' : ''}
                 `}
                 style={{
                   top: `${row * (100 / 9)}%`,
@@ -229,8 +274,8 @@ const QuoridorBoard = ({
                       ${wallExists 
                         ? getWallColor(getWallPlayer('v', wallRow, wallCol)) 
                         : getGhostWallColor()}
+                      rounded-full
                     `}
-                    style={{ borderRadius: '2px' }}
                   />
                 )}
               </div>

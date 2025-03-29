@@ -80,7 +80,7 @@ const QuoridorGameComponent = () => {
   
   // Flag to prevent multiple simultaneous AI moves
   const isProcessingMoveRef = useRef(false);
-  
+
   // Initialize WebAssembly module
   useEffect(() => {
     const initWasm = async () => {
@@ -108,8 +108,6 @@ const QuoridorGameComponent = () => {
   }, []);
   
   // Convert between algebraic notation and row/col coordinates
-  // IMPORTANT: In algebraic notation, a1 is bottom-left and i9 is top-right
-  // In our array, [0,0] is top-left and [8,8] is bottom-right
   const toAlgebraicNotation = useCallback((row, col) => {
     const colLetter = String.fromCharCode(97 + col); // 'a' for col 0
     const rowNumber = BOARD_SIZE - row; // Row 0 is 9, row 8 is 1
@@ -888,20 +886,48 @@ const QuoridorGameComponent = () => {
     boardState.player1Pos, boardState.activePlayer, nextPawnMoves.length
   ]);
 
-  // Render move history
+  // Render move history in a two-column format (player1 left, player2 right)
   const renderMoveHistory = useCallback(() => {
-    return boardState.moveHistory.map((move, index) => {
-      const player = move.player === Player.PLAYER1 ? 'Player 1' : 'Player 2';
-      const moveStyle = move.player === Player.PLAYER1 
-        ? 'text-blue-500' 
-        : 'text-red-500';
-      
-      return (
-        <div key={`move-${index}`} className={`${moveStyle} text-sm`}>
-          {index + 1}. {player}: {move.move}
-        </div>
-      );
+    // Group moves by turn number
+    const turns = [];
+    let currentTurn = { number: 1, player1Move: null, player2Move: null };
+    
+    boardState.moveHistory.forEach((move) => {
+      if (move.player === Player.PLAYER1) {
+        // Start a new turn for player1's move
+        if (currentTurn.player1Move !== null) {
+          turns.push(currentTurn);
+          currentTurn = { number: currentTurn.number + 1, player1Move: null, player2Move: null };
+        }
+        currentTurn.player1Move = move;
+      } else {
+        // Player2's move completes the current turn
+        currentTurn.player2Move = move;
+        turns.push(currentTurn);
+        currentTurn = { number: currentTurn.number + 1, player1Move: null, player2Move: null };
+      }
     });
+    
+    // Add the last incomplete turn if exists
+    if (currentTurn.player1Move !== null || currentTurn.player2Move !== null) {
+      turns.push(currentTurn);
+    }
+    
+    return turns.map((turn) => (
+      <div key={`turn-${turn.number}`} className="flex border-b border-gray-200 py-1">
+        <div className="w-1/12 text-gray-600 font-semibold">
+          {turn.number}.
+        </div>
+        <div className="w-5/12 text-blue-600">
+          {turn.player1Move ? turn.player1Move.move : ''}
+        </div>
+        <div className="w-5/12 text-red-600">
+          {turn.player2Move ? 
+            turn.player2Move.move : 
+            (turn.player1Move ? '...' : '')}
+        </div>
+      </div>
+    ));
   }, [boardState.moveHistory]);
 
   // Show error if WebAssembly failed to load
@@ -928,160 +954,183 @@ const QuoridorGameComponent = () => {
   }
 
   return (
-    <div className="flex flex-col items-center p-4 h-full">
-      <h1 className="text-2xl font-bold mb-4">Quoridor Game</h1>
+    <div className="flex flex-col items-center p-6 min-h-screen bg-gray-100">
+      {/* Game header with title and player turn indicator */}
+      <div className="w-full max-w-6xl bg-white rounded-t-lg shadow-md p-4 flex justify-between items-center border-b-2 border-gray-200">
+        <h1 className="text-3xl font-bold text-gray-800">Quoridor</h1>
+        <div className="flex items-center space-x-2">
+          <div className={`flex items-center ${boardState.activePlayer === Player.PLAYER1 ? 'text-blue-600' : 'text-red-600'} font-semibold`}>
+            <div className={`h-4 w-4 rounded-full ${boardState.activePlayer === Player.PLAYER1 ? 'bg-blue-600' : 'bg-red-600'} mr-2`}></div>
+            <span>{boardState.activePlayer === Player.PLAYER1 ? 'Player 1' : 'Player 2'}'s Turn</span>
+          </div>
+        </div>
+      </div>
       
       {!wasmLoaded && (
-        <div className="bg-yellow-100 p-4 rounded mb-4">
+        <div className="w-full max-w-6xl bg-yellow-100 p-4 rounded-md mb-4 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-700 mr-3"></div>
           Loading WebAssembly module...
         </div>
       )}
       
-      {/* Game configuration - removed game mode selector */}
-      <div className="flex flex-wrap gap-4 mb-4 w-full max-w-4xl">
-        <div className="flex flex-col">
-          <label className="text-sm font-medium">Player 1 (Blue)</label>
-          <select 
-            className="border rounded px-2 py-1"
-            value={player1Strategy}
-            onChange={(e) => setPlayer1Strategy(e.target.value)}
-            disabled={isGameActive || !wasmLoaded}
-          >
-            <option value="Human">Human</option>
-            {STRATEGIES.filter(s => s !== 'Human').map(strategy => (
-              <option key={strategy} value={strategy}>{strategy}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div className="flex flex-col">
-          <label className="text-sm font-medium">Player 2 (Red)</label>
-          <select 
-            className="border rounded px-2 py-1"
-            value={player2Strategy}
-            onChange={(e) => setPlayer2Strategy(e.target.value)}
-            disabled={isGameActive || !wasmLoaded}
-          >
-            <option value="Human">Human</option>
-            {STRATEGIES.filter(s => s !== 'Human').map(strategy => (
-              <option key={strategy} value={strategy}>{strategy}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div className="flex flex-col">
-          <label className="text-sm font-medium">Opening</label>
-          <select 
-            className="border rounded px-2 py-1"
-            value={selectedOpening}
-            onChange={(e) => setSelectedOpening(e.target.value)}
-            disabled={isGameActive || !wasmLoaded}
-          >
-            {OPENINGS.map(opening => (
-              <option key={opening} value={opening}>{opening}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div className="flex items-end gap-2">
-          <button 
-            className={`px-4 py-1 rounded ${isGameActive ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}
-            onClick={isGameActive ? resetGame : startGame}
-            disabled={!wasmLoaded || isThinking}
-          >
-            {isGameActive ? 'Reset Game' : 'Start Game'}
-          </button>
-        </div>
-      </div>
-      
-      {/* Game mode indicator - shows when in AI vs AI mode */}
-      {isAiVsAiMode() && (
-        <div className="mb-2 bg-blue-100 p-2 rounded w-full max-w-4xl">
-          <p className="text-center font-medium">AI vs AI Mode: {player1Strategy} vs {player2Strategy}</p>
-        </div>
-      )}
-      
-      {/* Status area with fixed height to prevent shifting */}
-      <div className="h-16 mb-2 w-full max-w-4xl">
-        {/* Game status and messages */}
-        <div className="flex items-center h-8">
-          {message && <div className="text-gray-700">{message}</div>}
-          
-          {/* Thinking indicator */}
-          {isThinking && (
-            <div className="text-gray-700 flex items-center">
-              <AlertCircle size={16} className="mr-2" />
-              AI is thinking...
-            </div>
-          )}
-        </div>
-      </div>
-      
-      {/* Game board and info panel */}
-      <div className="flex">
-        {/* Game board */}
-        <QuoridorBoard
-          boardState={boardState}
-          onCellClick={handleCellClick}
-          onWallClick={handleWallClick}
-          nextPawnMoves={nextPawnMoves}
-          nextWallMoves={nextWallMoves}
-          player1Strategy={player1Strategy}
-          player2Strategy={player2Strategy}
-        />
-        
-        {/* Game info panel */}
-        <div className="ml-6 w-64">
-          <div>
-            <h3 className="font-bold mb-2">Current Turn</h3>
-            <div className={`flex items-center mb-4 ${boardState.activePlayer === Player.PLAYER1 ? 'text-blue-500' : 'text-red-500'}`}>
-              <div className={`h-4 w-4 rounded-full ${boardState.activePlayer === Player.PLAYER1 ? 'bg-blue-500' : 'bg-red-500'} mr-2`}></div>
-              <span>{boardState.activePlayer === Player.PLAYER1 ? 'Player 1' : 'Player 2'}</span>
-              <span className="ml-2">
-                ({boardState.activePlayer === Player.PLAYER1 ? player1Strategy : player2Strategy})
-              </span>
-            </div>
-          </div>
-          
-          <div>
-            <h3 className="font-bold mb-2">Walls Remaining</h3>
-            <div className="flex justify-between mb-4">
-              <div className="flex items-center">
-                <div className="h-4 w-4 rounded-full bg-blue-500 mr-2"></div>
-                <span>Player 1: {boardState.player1Walls}</span>
-              </div>
-              <div className="flex items-center">
-                <div className="h-4 w-4 rounded-full bg-red-500 mr-2"></div>
-                <span>Player 2: {boardState.player2Walls}</span>
+      <div className="w-full max-w-6xl flex flex-col md:flex-row bg-white shadow-xl rounded-b-lg">
+        {/* Left sidebar - game controls */}
+        <div className="w-full md:w-64 p-4 bg-gray-50 rounded-bl-lg border-r border-gray-200">
+          <div className="space-y-4">
+            {/* Player 1 settings */}
+            <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+              <label className="text-sm font-medium text-blue-800 block mb-1">Player 1 (Blue)</label>
+              <select 
+                className="w-full border border-blue-300 rounded px-2 py-1 text-blue-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={player1Strategy}
+                onChange={(e) => setPlayer1Strategy(e.target.value)}
+                disabled={isGameActive || !wasmLoaded}
+              >
+                <option value="Human">Human</option>
+                {STRATEGIES.filter(s => s !== 'Human').map(strategy => (
+                  <option key={strategy} value={strategy}>{strategy}</option>
+                ))}
+              </select>
+              <div className="flex items-center mt-2">
+                <div className="h-3 w-3 rounded-full bg-blue-600 mr-2"></div>
+                <span className="text-xs text-blue-800">Walls: {boardState.player1Walls}</span>
               </div>
             </div>
+            
+            {/* Player 2 settings */}
+            <div className="bg-red-50 p-3 rounded-lg border border-red-200">
+              <label className="text-sm font-medium text-red-800 block mb-1">Player 2 (Red)</label>
+              <select 
+                className="w-full border border-red-300 rounded px-2 py-1 text-red-800 bg-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                value={player2Strategy}
+                onChange={(e) => setPlayer2Strategy(e.target.value)}
+                disabled={isGameActive || !wasmLoaded}
+              >
+                <option value="Human">Human</option>
+                {STRATEGIES.filter(s => s !== 'Human').map(strategy => (
+                  <option key={strategy} value={strategy}>{strategy}</option>
+                ))}
+              </select>
+              <div className="flex items-center mt-2">
+                <div className="h-3 w-3 rounded-full bg-red-600 mr-2"></div>
+                <span className="text-xs text-red-800">Walls: {boardState.player2Walls}</span>
+              </div>
+            </div>
+            
+            {/* Opening selection */}
+            <div className="bg-gray-100 p-3 rounded-lg border border-gray-300">
+              <label className="text-sm font-medium text-gray-700 block mb-1">Opening</label>
+              <select 
+                className="w-full border border-gray-300 rounded px-2 py-1 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-gray-500"
+                value={selectedOpening}
+                onChange={(e) => setSelectedOpening(e.target.value)}
+                disabled={isGameActive || !wasmLoaded}
+              >
+                {OPENINGS.map(opening => (
+                  <option key={opening} value={opening}>{opening}</option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Game controls */}
+            <div className="flex flex-col space-y-2">
+              <button 
+                className={`px-4 py-2 rounded-lg text-white font-medium shadow-md transition-colors 
+                  ${isGameActive ? 
+                    'bg-red-600 hover:bg-red-700 active:bg-red-800' : 
+                    'bg-blue-600 hover:bg-blue-700 active:bg-blue-800'}`}
+                onClick={isGameActive ? resetGame : startGame}
+                disabled={!wasmLoaded || isThinking}
+              >
+                {isGameActive ? 'Reset Game' : 'Start Game'}
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Main content area - game board and status */}
+        <div className="flex-1 p-6 flex flex-col items-center">
+          {/* Game status and messages */}
+          <div className="w-full mb-4 min-h-[40px] flex items-center justify-center">
+            {message && (
+              <div className="bg-gray-100 px-4 py-2 rounded-lg text-gray-800 text-center">
+                {message}
+              </div>
+            )}
+            
+            {/* Thinking indicator */}
+            {isThinking && (
+              <div className="bg-blue-100 px-4 py-2 rounded-lg text-blue-800 flex items-center">
+                <AlertCircle size={16} className="mr-2 text-blue-600" />
+                AI is thinking...
+              </div>
+            )}
           </div>
           
-          <div>
-            <h3 className="font-bold mb-2">Move History</h3>
-            <div className="border p-2 h-64 overflow-y-auto">
-              {renderMoveHistory()}
-            </div>
+          {/* Game board - center of attention */}
+          <div className="mb-6 transform transition-all duration-300 hover:scale-[1.02]">
+            <QuoridorBoard
+              boardState={boardState}
+              onCellClick={handleCellClick}
+              onWallClick={handleWallClick}
+              nextPawnMoves={nextPawnMoves}
+              nextWallMoves={nextWallMoves}
+              player1Strategy={player1Strategy}
+              player2Strategy={player2Strategy}
+            />
+          </div>
+        </div>
+        
+        {/* Right sidebar - move history */}
+        <div className="w-full md:w-64 p-4 bg-gray-50 rounded-br-lg border-l border-gray-200">
+          <h3 className="font-bold text-gray-800 mb-2 pb-2 border-b border-gray-300">Move History</h3>
+          <div className="border border-gray-300 rounded-lg p-2 h-96 overflow-y-auto bg-white">
+            {boardState.moveHistory.length > 0 ? (
+              <div className="text-sm">
+                {/* Column headers */}
+                <div className="flex border-b-2 border-gray-300 py-1 font-semibold">
+                  <div className="w-1/12">#</div>
+                  <div className="w-5/12 text-blue-600">Player 1</div>
+                  <div className="w-5/12 text-red-600">Player 2</div>
+                </div>
+                {renderMoveHistory()}
+              </div>
+            ) : (
+              <div className="text-gray-500 text-center italic text-sm mt-4">
+                No moves yet
+              </div>
+            )}
           </div>
         </div>
       </div>
       
       {/* Game instructions */}
-      <div className="mt-8 text-sm text-gray-600 max-w-2xl">
-        <h3 className="font-bold mb-2">How to Play</h3>
-        <p className="mb-2">
-          <strong>Objective:</strong> Move your pawn to the opposite side of the board before your opponent.
-        </p>
-        <p className="mb-2">
-          <strong>Pawn Movement:</strong> On your turn, move your pawn one square horizontally or vertically.
-        </p>
-        <p className="mb-2">
-          <strong>Wall Placement:</strong> Instead of moving, place a wall to block your opponent's path. Each player has 10 walls.
-          Simply hover between cells and click to place horizontal or vertical walls.
-        </p>
-        <p className="mb-2">
-          <strong>Rules:</strong> You cannot completely block a player's path to the goal. If a player is directly in front of you, you can jump over them.
-        </p>
+      <div className="mt-8 w-full max-w-6xl bg-white p-6 rounded-lg shadow-lg">
+        <h3 className="font-bold text-xl text-gray-800 mb-4 pb-2 border-b border-gray-200">How to Play Quoridor</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <p className="text-gray-800 mb-3">
+              <span className="font-semibold text-blue-700">Objective:</span> Move your pawn to the opposite side of the board before your opponent.
+            </p>
+            <p className="text-gray-800 mb-3">
+              <span className="font-semibold text-blue-700">Pawn Movement:</span> On your turn, move your pawn one square horizontally or vertically.
+            </p>
+            <p className="text-gray-800">
+              <span className="font-semibold text-blue-700">Jump Rule:</span> If your opponent's pawn is adjacent to yours, you can jump over it (if there's no wall in between).
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-800 mb-3">
+              <span className="font-semibold text-red-700">Wall Placement:</span> Instead of moving your pawn, place a wall to block your opponent's path. Each player has 10 walls.
+            </p>
+            <p className="text-gray-800 mb-3">
+              <span className="font-semibold text-red-700">Wall Rules:</span> Walls cannot completely block a player's path to the goal. Walls can be placed horizontally or vertically between cells.
+            </p>
+            <p className="text-gray-800">
+              <span className="font-semibold text-red-700">Strategy Tip:</span> Balance between advancing your pawn and using walls to slow your opponent.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
